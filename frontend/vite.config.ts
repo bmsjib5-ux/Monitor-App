@@ -2,9 +2,9 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 
-// GitHub Pages uses /MonitorApp/, local uses ./
+// GitHub Pages uses /Monitor-App/, local uses ./
 const isGitHubPages = process.env.GITHUB_PAGES === 'true'
-const base = isGitHubPages ? '/MonitorApp/' : './'
+const base = isGitHubPages ? '/Monitor-App/' : './'
 
 export default defineConfig({
   plugins: [
