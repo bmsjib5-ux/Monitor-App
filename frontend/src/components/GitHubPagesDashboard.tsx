@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { RefreshCw, Activity, AlertTriangle, CheckCircle, XCircle, Clock, Building2, Monitor, LogOut, Cpu, HardDrive, Database, Wifi } from 'lucide-react';
 import { supabaseApi, ProcessHistory, AlertRecord, getGitHubPagesUser } from '../supabaseClient';
+import PushNotificationToggle from './PushNotificationToggle';
 
 interface ProcessGroup {
   hospitalCode: string;
@@ -132,6 +133,7 @@ function GitHubPagesDashboard({ onLogout }: GitHubPagesDashboardProps) {
             >
               <RefreshCw className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} />
             </button>
+            <PushNotificationToggle />
             {onLogout && (
               <button
                 onClick={onLogout}

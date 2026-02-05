@@ -281,4 +281,168 @@ export const supabaseApi = {
       limit,
     });
   },
+
+  // Subscribe to push notifications
+  subscribePush: async (subscription: PushSubscription): Promise<boolean> => {
+    try {
+      const keys = subscription.toJSON().keys;
+      if (!keys) {
+        console.error('No keys in subscription');
+        return false;
+      }
+
+      const response = await fetch(`${SUPABASE_URL}/rest/v1/rpc/upsert_push_subscription`, {
+        method: 'POST',
+        headers: {
+          'apikey': SUPABASE_ANON_KEY,
+          'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          p_endpoint: subscription.endpoint,
+          p_p256dh: keys.p256dh,
+          p_auth: keys.auth,
+          p_user_agent: navigator.userAgent,
+          p_hospital_code: null
+        }),
+      });
+
+      if (!response.ok) {
+        console.error('Failed to save subscription:', await response.text());
+        return false;
+      }
+
+      return true;
+    } catch (error) {
+      console.error('Error saving subscription:', error);
+      return false;
+    }
+  },
+
+  // Unsubscribe from push notifications
+  unsubscribePush: async (endpoint: string): Promise<boolean> => {
+    try {
+      const response = await fetch(`${SUPABASE_URL}/rest/v1/rpc/remove_push_subscription`, {
+        method: 'POST',
+        headers: {
+          'apikey': SUPABASE_ANON_KEY,
+          'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          p_endpoint: endpoint
+        }),
+      });
+
+      return response.ok;
+    } catch (error) {
+      console.error('Error removing subscription:', error);
+      return false;
+    }
+  },
+};
+
+// =============================================
+// Push Notification Helper Functions
+// =============================================
+
+// VAPID Public Key - ต้องตรงกับ backend
+export const VAPID_PUBLIC_KEY = 'BP4on457V_VQNQsnBKXlsXVEBTPpHZzfBpfOO-pfmVqYd_XhzS7lfg0LjJc_hKqJMMJiT9gvetjwiGpjYNsN9LI';
+
+// Convert VAPID key to ArrayBuffer for subscription
+function urlBase64ToUint8Array(base64String: string): ArrayBuffer {
+  const padding = '='.repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding)
+    .replace(/-/g, '+')
+    .replace(/_/g, '/');
+
+  const rawData = window.atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+
+  for (let i = 0; i < rawData.length; ++i) {
+    outputArray[i] = rawData.charCodeAt(i);
+  }
+  return outputArray.buffer;
+}
+
+// Check if push notifications are supported
+export const isPushSupported = (): boolean => {
+  return 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+};
+
+// Check current notification permission
+export const getNotificationPermission = (): NotificationPermission => {
+  if (!('Notification' in window)) return 'denied';
+  return Notification.permission;
+};
+
+// Request notification permission
+export const requestNotificationPermission = async (): Promise<NotificationPermission> => {
+  if (!('Notification' in window)) return 'denied';
+  return Notification.requestPermission();
+};
+
+// Subscribe to push notifications
+export const subscribeToPush = async (): Promise<PushSubscription | null> => {
+  if (!isPushSupported()) {
+    console.error('Push notifications not supported');
+    return null;
+  }
+
+  try {
+    const registration = await navigator.serviceWorker.ready;
+
+    // Check existing subscription
+    let subscription = await registration.pushManager.getSubscription();
+
+    if (!subscription) {
+      // Create new subscription
+      subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
+      });
+    }
+
+    // Save to Supabase
+    const saved = await supabaseApi.subscribePush(subscription);
+    if (!saved) {
+      console.warn('Failed to save subscription to server');
+    }
+
+    return subscription;
+  } catch (error) {
+    console.error('Error subscribing to push:', error);
+    return null;
+  }
+};
+
+// Unsubscribe from push notifications
+export const unsubscribeFromPush = async (): Promise<boolean> => {
+  try {
+    const registration = await navigator.serviceWorker.ready;
+    const subscription = await registration.pushManager.getSubscription();
+
+    if (subscription) {
+      // Remove from Supabase
+      await supabaseApi.unsubscribePush(subscription.endpoint);
+      // Unsubscribe from browser
+      await subscription.unsubscribe();
+    }
+
+    return true;
+  } catch (error) {
+    console.error('Error unsubscribing from push:', error);
+    return false;
+  }
+};
+
+// Check if already subscribed
+export const isPushSubscribed = async (): Promise<boolean> => {
+  try {
+    const registration = await navigator.serviceWorker.ready;
+    const subscription = await registration.pushManager.getSubscription();
+    return subscription !== null;
+  } catch {
+    return false;
+  }
 };
