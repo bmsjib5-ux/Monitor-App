@@ -1,19 +1,17 @@
 import { useState, useEffect } from 'react';
 import { Lock, User, Eye, EyeOff, AlertCircle, LayoutDashboard } from 'lucide-react';
+import axios from 'axios';
+
+const API_BASE_URL = 'http://localhost:3001';
 
 interface MasterLoginProps {
   onLogin: () => void;
   onBack: () => void;
 }
 
-// Credentials (in production, this should be handled by backend)
-const ADMIN_USER = 'admin';
-const ADMIN_PASS = 'bmshosxp!@#$';
-
-// LocalStorage keys for remember me
+// LocalStorage keys for remember me (only stores username, never password)
 const REMEMBER_KEY = 'masterRemember';
 const SAVED_USER_KEY = 'masterSavedUser';
-const SAVED_PASS_KEY = 'masterSavedPass';
 
 function MasterLogin({ onLogin, onBack }: MasterLoginProps) {
   const [username, setUsername] = useState('');
@@ -23,46 +21,56 @@ function MasterLogin({ onLogin, onBack }: MasterLoginProps) {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  // Load saved credentials on mount
+  // Load saved username on mount (never load password)
   useEffect(() => {
     const savedRemember = localStorage.getItem(REMEMBER_KEY) === 'true';
     if (savedRemember) {
       const savedUser = localStorage.getItem(SAVED_USER_KEY) || '';
-      const savedPass = localStorage.getItem(SAVED_PASS_KEY) || '';
       setUsername(savedUser);
-      setPassword(savedPass);
       setRememberMe(true);
     }
   }, []);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setLoading(true);
 
-    // Simulate login delay
-    setTimeout(() => {
-      if (username === ADMIN_USER && password === ADMIN_PASS) {
-        // Save or clear credentials based on remember me checkbox
+    try {
+      const response = await axios.post(`${API_BASE_URL}/api/auth/login`, {
+        username,
+        password,
+      });
+
+      if (response.data.success) {
+        // Save JWT token securely in sessionStorage
+        sessionStorage.setItem('masterAuth', 'true');
+        sessionStorage.setItem('masterAuthTime', Date.now().toString());
+        sessionStorage.setItem('masterToken', response.data.token);
+
+        // Save or clear username based on remember me checkbox
         if (rememberMe) {
           localStorage.setItem(REMEMBER_KEY, 'true');
           localStorage.setItem(SAVED_USER_KEY, username);
-          localStorage.setItem(SAVED_PASS_KEY, password);
         } else {
           localStorage.removeItem(REMEMBER_KEY);
           localStorage.removeItem(SAVED_USER_KEY);
-          localStorage.removeItem(SAVED_PASS_KEY);
         }
 
-        // Store auth state
-        sessionStorage.setItem('masterAuth', 'true');
-        sessionStorage.setItem('masterAuthTime', Date.now().toString());
+        // Clean up old password storage if exists
+        localStorage.removeItem('masterSavedPass');
+
         onLogin();
-      } else {
-        setError('ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง');
-        setLoading(false);
       }
-    }, 500);
+    } catch (err: any) {
+      if (err.response?.status === 401) {
+        setError('ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง');
+      } else {
+        setError('เกิดข้อผิดพลาดในการเชื่อมต่อ กรุณาลองใหม่อีกครั้ง');
+      }
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -150,7 +158,7 @@ function MasterLogin({ onLogin, onBack }: MasterLoginProps) {
                 htmlFor="rememberMe"
                 className="ml-2 text-sm text-purple-200 cursor-pointer select-none"
               >
-                จำค่าการเข้าสู่ระบบ
+                จำชื่อผู้ใช้
               </label>
             </div>
 

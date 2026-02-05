@@ -11,6 +11,8 @@ from typing import Dict, Optional, Any
 import json
 import os
 
+from bms_log_monitor import BMSLogMonitor, is_bms_process
+
 # Thailand timezone (UTC+7)
 THAI_TZ = timezone(timedelta(hours=7))
 
@@ -263,6 +265,14 @@ class RestartScheduler:
 
                     logger.info(f"Scheduled restart triggered for {process_name}")
 
+                    # Check if this is a BMS process and if Gateway has pending work
+                    if is_bms_process(process_name):
+                        bms_monitor = BMSLogMonitor(process_name)
+                        if bms_monitor.is_any_thread_working():
+                            logger.info(f"BMS process {process_name} has pending work (heartbeat > 0), postponing restart")
+                            # Don't update next_restart, will try again next check (every 10 seconds)
+                            continue
+
                     # Perform restart
                     success = await self._restart_process(process_name, program_path)
 
@@ -354,14 +364,12 @@ class RestartScheduler:
                 if os.name == 'nt':  # Windows
                     # Start detached from current process
                     subprocess.Popen(
-                        program_path,
-                        shell=True,
+                        [program_path],
                         creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
                     )
                 else:  # Linux/Mac
                     subprocess.Popen(
-                        program_path,
-                        shell=True,
+                        [program_path],
                         start_new_session=True
                     )
 
@@ -413,14 +421,12 @@ class RestartScheduler:
                 if os.name == 'nt':  # Windows
                     # Start detached from current process
                     subprocess.Popen(
-                        program_path,
-                        shell=True,
+                        [program_path],
                         creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
                     )
                 else:  # Linux/Mac
                     subprocess.Popen(
-                        program_path,
-                        shell=True,
+                        [program_path],
                         start_new_session=True
                     )
 

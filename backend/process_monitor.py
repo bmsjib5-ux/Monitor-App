@@ -12,6 +12,7 @@ from collections import defaultdict, deque
 from models import ProcessInfo, ProcessMetrics, Alert, WindowInfo, BMSGatewayStatus
 from config import settings
 from bms_log_monitor import BMSLogMonitor, is_bms_process
+import socket
 import logging
 
 logger = logging.getLogger(__name__)
@@ -425,6 +426,10 @@ class ProcessMonitor:
                     window_info = parse_bms_window_title(window_title)
                     if window_info:
                         logger.debug(f"Parsed window_info for {process_name}: version={window_info.version}")
+                        # Store hospital info for LINE notifications
+                        self.monitored_processes[process_name]['hospital_name'] = window_info.hospital_name
+                        self.monitored_processes[process_name]['hospital_code'] = window_info.hospital_code
+                        self.monitored_processes[process_name]['hostname'] = socket.gethostname()
             except Exception as e:
                 logger.warning(f"Could not get window title for {process_name}: {e}")
 
@@ -509,13 +514,17 @@ class ProcessMonitor:
         timestamp = get_thai_iso()
         stopped_mins = int(stopped_duration // 60)
         stopped_secs = int(stopped_duration % 60)
+        proc_data = self.monitored_processes.get(process_name, {})
         alert = Alert(
             timestamp=timestamp,
             process_name=process_name,
             alert_type="PROCESS_STOPPED",
             message=f"โปรแกรม {process_name} (PID: {pid}) หยุดทำงานแล้ว {stopped_mins} นาที {stopped_secs} วินาที!",
             value=stopped_duration,
-            threshold=float(wait_duration)
+            threshold=float(wait_duration),
+            hospital_code=proc_data.get('hospital_code'),
+            hospital_name=proc_data.get('hospital_name'),
+            hostname=proc_data.get('hostname') or socket.gethostname()
         )
         self.alerts.append(alert)
         self.process_stopped_alerted[process_name] = True
@@ -549,13 +558,17 @@ class ProcessMonitor:
             del self.process_stopped_alerted[process_name]
 
         timestamp = get_thai_iso()
+        proc_data = self.monitored_processes.get(process_name, {})
         alert = Alert(
             timestamp=timestamp,
             process_name=process_name,
             alert_type="PROCESS_STARTED",
             message=f"โปรแกรม {process_name} (PID: {pid}) เริ่มทำงานแล้ว",
             value=0.0,
-            threshold=0.0
+            threshold=0.0,
+            hospital_code=proc_data.get('hospital_code'),
+            hospital_name=proc_data.get('hospital_name'),
+            hostname=proc_data.get('hostname') or socket.gethostname()
         )
         self.alerts.append(alert)
         logger.info(f"Alert created: Process {process_name} started")
@@ -584,8 +597,9 @@ class ProcessMonitor:
 
         # Get process metadata for LINE notifications
         proc_data = self.monitored_processes.get(process_info.name, {})
-        hostname = proc_data.get('hostname')
+        hostname = proc_data.get('hostname') or socket.gethostname()
         hospital_name = proc_data.get('hospital_name')
+        hospital_code = proc_data.get('hospital_code')
 
         # Check CPU alert (if enabled)
         if self.alert_settings.get("cpu_alert_enabled", True):
@@ -596,7 +610,10 @@ class ProcessMonitor:
                     alert_type="CPU",
                     message=f"CPU usage is {process_info.cpu_percent}% (threshold: {self.thresholds['cpu']}%)",
                     value=process_info.cpu_percent,
-                    threshold=self.thresholds["cpu"]
+                    threshold=self.thresholds["cpu"],
+                    hospital_code=hospital_code,
+                    hospital_name=hospital_name,
+                    hostname=hostname
                 )
                 self.alerts.append(alert)
                 self._send_threshold_line_notification(
@@ -613,7 +630,10 @@ class ProcessMonitor:
                     alert_type="RAM",
                     message=f"RAM usage is {process_info.memory_percent}% (threshold: {self.thresholds['ram']}%)",
                     value=process_info.memory_percent,
-                    threshold=self.thresholds["ram"]
+                    threshold=self.thresholds["ram"],
+                    hospital_code=hospital_code,
+                    hospital_name=hospital_name,
+                    hostname=hostname
                 )
                 self.alerts.append(alert)
                 self._send_threshold_line_notification(
@@ -631,7 +651,10 @@ class ProcessMonitor:
                     alert_type="Disk I/O",
                     message=f"Disk I/O is {total_disk_io:.2f} MB/s (threshold: {self.thresholds['disk_io']} MB/s)",
                     value=total_disk_io,
-                    threshold=self.thresholds["disk_io"]
+                    threshold=self.thresholds["disk_io"],
+                    hospital_code=hospital_code,
+                    hospital_name=hospital_name,
+                    hostname=hostname
                 )
                 self.alerts.append(alert)
                 self._send_threshold_line_notification(
@@ -649,7 +672,10 @@ class ProcessMonitor:
                     alert_type="Network",
                     message=f"Network usage is {total_network:.2f} MB/s (threshold: {self.thresholds['network']} MB/s)",
                     value=total_network,
-                    threshold=self.thresholds["network"]
+                    threshold=self.thresholds["network"],
+                    hospital_code=hospital_code,
+                    hospital_name=hospital_name,
+                    hostname=hostname
                 )
                 self.alerts.append(alert)
                 self._send_threshold_line_notification(
@@ -812,7 +838,6 @@ class ProcessMonitor:
             if executable_path and os.path.exists(executable_path):
                 if os.name == 'nt':  # Windows
                     process = subprocess.Popen([executable_path],
-                                              shell=True,
                                               creationflags=subprocess.CREATE_NEW_PROCESS_GROUP)
                 else:  # Unix-like
                     process = subprocess.Popen([executable_path])
@@ -836,7 +861,6 @@ class ProcessMonitor:
                 for ext in ['.exe', '.bat', '.cmd']:
                     try:
                         process = subprocess.Popen([process_name + ext if not process_name.endswith(ext) else process_name],
-                                                  shell=True,
                                                   creationflags=subprocess.CREATE_NEW_PROCESS_GROUP)
                         time.sleep(1)
                         if self.add_process(process_name):

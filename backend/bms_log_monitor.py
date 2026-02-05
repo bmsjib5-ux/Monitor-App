@@ -87,6 +87,9 @@ class BMSLogMonitor:
     PATTERN_RECONNECT_START = r'ReConnect DB \.\.\.'
     PATTERN_RECONNECT_OK = r'ReConnect DB OK\.'
     PATTERN_THREAD_ERROR = r'Thread (Export|Import)\[(\d+)\]\s+(Execute\s+)?Error\s*=>\s*(.+)'
+    # Pattern for detecting working threads (executing/processing)
+    PATTERN_THREAD_WORKING = r'Thread (Export|Import)\[(\d+)\]\s+Execute'
+    PATTERN_THREAD_DONE = r'Thread (Export|Import)\[(\d+)\]\s+(Done|Finish|Complete|Stand by)'
 
     def __init__(self, process_name: str, log_path: Optional[str] = None):
         """
@@ -433,6 +436,80 @@ class BMSLogMonitor:
         )
 
         return status
+
+    def is_any_thread_working(self) -> bool:
+        """
+        Check if Gateway has pending work by analyzing log entries.
+
+        Safe to restart ONLY when:
+        - Last 5 consecutive heartbeats show "1------------------ = 0"
+        - No Process/Create/Created thread entries between those 5 heartbeats
+
+        Returns:
+            True if Gateway has pending work (should NOT restart yet)
+            False if Gateway is idle (safe to restart)
+        """
+        log_path = self._get_today_log_path('System')
+        lines = self._read_log_file(log_path)
+
+        if not lines:
+            # No log file found, assume safe to restart
+            logger.debug("No system log found, assuming Gateway is idle")
+            return False
+
+        # Patterns
+        heartbeat_pattern = r'1-{18}\s*=\s*(\d+)'
+        activity_patterns = [
+            r'Start Gateway',                        # Gateway just started
+            r'Created (Export|Import) Thread',       # Thread just created
+            r'Create Thread (Export|Import)\[\d+\]', # Thread being created
+            r'Process (Export|Import) Thread\[\d+\]', # Thread processing data
+            r'Complete (Export|Import)',             # Thread just completed work
+            r'Incomplete (Export|Import)',           # Thread has incomplete work
+        ]
+
+        required_consecutive_zeros = 5
+        consecutive_zeros = 0
+
+        # Scan from newest to oldest, looking for 5 consecutive zero heartbeats
+        # with no activity in between
+        for line in reversed(lines[-100:]):
+            line_stripped = line.strip()
+
+            # Check for activity patterns - if found, reset counter
+            is_activity = False
+            for pattern in activity_patterns:
+                if re.search(pattern, line_stripped):
+                    if consecutive_zeros > 0:
+                        logger.info(f"Activity found after {consecutive_zeros} zeros, resetting: {line_stripped[:80]}")
+                    consecutive_zeros = 0  # Reset counter
+                    is_activity = True
+                    break
+
+            if is_activity:
+                continue
+
+            # Check for heartbeat
+            match = re.search(heartbeat_pattern, line_stripped)
+            if match:
+                counter_value = int(match.group(1))
+                if counter_value == 0:
+                    consecutive_zeros += 1
+                    logger.debug(f"Heartbeat = 0, consecutive count: {consecutive_zeros}")
+                    if consecutive_zeros >= required_consecutive_zeros:
+                        logger.info(f"Gateway idle: {required_consecutive_zeros} consecutive heartbeat zeros found, safe to restart")
+                        return False  # Safe to restart
+                else:
+                    # Non-zero heartbeat, has pending work
+                    logger.info(f"Gateway busy: heartbeat = {counter_value}, postponing restart")
+                    return True  # Has pending work
+
+        # If we get here, we didn't find 5 consecutive zeros
+        if consecutive_zeros > 0:
+            logger.info(f"Gateway not idle enough: only {consecutive_zeros} consecutive zeros (need {required_consecutive_zeros}), postponing restart")
+        else:
+            logger.info(f"No idle heartbeat pattern found, postponing restart")
+        return True  # Not enough consecutive zeros, wait
 
     def get_status_changes(self) -> Dict[str, tuple]:
         """

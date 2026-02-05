@@ -44,20 +44,42 @@ const EditProcessModal = ({
   // Restart schedule state
   const [restartEnabled, setRestartEnabled] = useState(currentRestartSchedule?.enabled || false);
   const [restartType, setRestartType] = useState<RestartScheduleType>(currentRestartSchedule?.type || 'none');
-  const [intervalMinutes, setIntervalMinutes] = useState(currentRestartSchedule?.intervalMinutes || 0);
-  const [intervalSeconds, setIntervalSeconds] = useState(currentRestartSchedule?.intervalSeconds || 0);
+  const [intervalMinutes, setIntervalMinutes] = useState(currentRestartSchedule?.intervalMinutes ?? 0);
+  const [intervalSeconds, setIntervalSeconds] = useState(currentRestartSchedule?.intervalSeconds ?? 0);
   const [dailyTime, setDailyTime] = useState(currentRestartSchedule?.dailyTime || '06:00');
 
   // Auto-start schedule state (start when process is stopped)
   const [autoStartEnabled, setAutoStartEnabled] = useState(currentAutoStartSchedule?.enabled || false);
   const [autoStartType, setAutoStartType] = useState<AutoStartScheduleType>(currentAutoStartSchedule?.type || 'none');
-  const [autoStartIntervalMinutes, setAutoStartIntervalMinutes] = useState(currentAutoStartSchedule?.intervalMinutes || 1);
-  const [autoStartIntervalSeconds, setAutoStartIntervalSeconds] = useState(currentAutoStartSchedule?.intervalSeconds || 0);
+  const [autoStartIntervalMinutes, setAutoStartIntervalMinutes] = useState(currentAutoStartSchedule?.intervalMinutes ?? 0);
+  const [autoStartIntervalSeconds, setAutoStartIntervalSeconds] = useState(currentAutoStartSchedule?.intervalSeconds ?? 0);
   const [autoStartDailyTime, setAutoStartDailyTime] = useState(currentAutoStartSchedule?.dailyTime || '06:00');
 
   // Window info state
   const [windowTitle, setWindowTitle] = useState<string | null>(currentWindowTitle || null);
   const [windowInfo, setWindowInfo] = useState<WindowInfo | null>(currentWindowInfo || null);
+
+  // Update auto-start state when props change (e.g., when modal reopens with fresh data)
+  useEffect(() => {
+    if (currentAutoStartSchedule) {
+      setAutoStartEnabled(currentAutoStartSchedule.enabled || false);
+      setAutoStartType(currentAutoStartSchedule.type || 'none');
+      setAutoStartIntervalMinutes(currentAutoStartSchedule.intervalMinutes ?? 1);
+      setAutoStartIntervalSeconds(currentAutoStartSchedule.intervalSeconds ?? 0);
+      setAutoStartDailyTime(currentAutoStartSchedule.dailyTime || '06:00');
+    }
+  }, [currentAutoStartSchedule]);
+
+  // Update restart state when props change
+  useEffect(() => {
+    if (currentRestartSchedule) {
+      setRestartEnabled(currentRestartSchedule.enabled || false);
+      setRestartType(currentRestartSchedule.type || 'none');
+      setIntervalMinutes(currentRestartSchedule.intervalMinutes ?? 0);
+      setIntervalSeconds(currentRestartSchedule.intervalSeconds ?? 0);
+      setDailyTime(currentRestartSchedule.dailyTime || '06:00');
+    }
+  }, [currentRestartSchedule]);
   const [loadingWindowInfo, setLoadingWindowInfo] = useState(false);
 
   // Load hostname from API if not already set

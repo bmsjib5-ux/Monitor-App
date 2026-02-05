@@ -301,9 +301,9 @@ async def save_process_data(process_data: Dict[str, Any]) -> None:
         except Exception as e:
             logger.debug(f"Could not get metadata for {process_name}: {e}")
 
-    # VALIDATION: hospital_code is REQUIRED
+    # VALIDATION: hospital_code is REQUIRED for Supabase storage
     if not hospital_code:
-        logger.warning(f"Skipping save_process_data for {process_name}: hospital_code is required but not found. Please set hospital_code first.")
+        logger.debug(f"Skipping save_process_data for {process_name}: hospital_code not set yet")
         return
 
     now = get_thai_iso()
@@ -616,6 +616,54 @@ async def mark_alert_as_sent(alert_id: int) -> bool:
         return False
 
 
+async def get_unsent_process_alerts(limit: int = 50) -> List[Dict[str, Any]]:
+    """Get unsent alerts for PROCESS_STARTED and PROCESS_STOPPED only
+
+    This function specifically gets alerts that:
+    - Have alert_type = 'PROCESS_STARTED' or 'PROCESS_STOPPED'
+    - Have line_sent = null or line_sent = false
+
+    Returns:
+        List of alerts that need to be sent to LINE
+    """
+    all_alerts = []
+
+    # Get PROCESS_STARTED alerts
+    started_alerts = await get_unsent_alerts("PROCESS_STARTED", limit)
+    all_alerts.extend(started_alerts)
+
+    # Get PROCESS_STOPPED alerts
+    stopped_alerts = await get_unsent_alerts("PROCESS_STOPPED", limit)
+    all_alerts.extend(stopped_alerts)
+
+    # Sort by created_at descending and limit
+    all_alerts.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+    return all_alerts[:limit]
+
+
+async def get_global_line_settings_for_notification() -> Optional[Dict[str, Any]]:
+    """Get global LINE settings (without hostname filter) for sending notifications
+
+    Returns the first enabled LINE settings found in Supabase.
+    """
+    try:
+        # Get all enabled LINE settings
+        result = await db.select(
+            "line_settings",
+            filters={"enabled": True},
+            limit=1
+        )
+        if result:
+            return _decrypt_line_settings(result[0])
+
+        # Fallback: get any LINE settings
+        result = await db.select("line_settings", limit=1)
+        return _decrypt_line_settings(result[0]) if result else None
+    except Exception as e:
+        logger.warning(f"Could not get global LINE settings: {e}")
+        return None
+
+
 async def get_thresholds() -> Optional[Dict[str, Any]]:
     """Get current thresholds"""
     result = await db.select("thresholds", limit=1)
@@ -858,6 +906,16 @@ async def clear_orphaned_process_history(hostname: str, active_process_names: Li
 
 # ============== LINE OA Settings ==============
 
+def _decrypt_line_settings(record: Dict[str, Any]) -> Dict[str, Any]:
+    """Decrypt encrypted LINE token fields in a settings record."""
+    from encryption import decrypt
+    if record:
+        for field in ("channel_access_token", "channel_secret"):
+            if field in record and record[field]:
+                record[field] = decrypt(record[field])
+    return record
+
+
 async def get_line_settings(hostname: str = None) -> Optional[Dict[str, Any]]:
     """Get LINE OA settings from Supabase"""
     try:
@@ -866,7 +924,7 @@ async def get_line_settings(hostname: str = None) -> Optional[Dict[str, Any]]:
             filters["hostname"] = hostname
 
         result = await db.select("line_settings", filters=filters, limit=1)
-        return result[0] if result else None
+        return _decrypt_line_settings(result[0]) if result else None
     except Exception as e:
         logger.warning(f"Could not get LINE settings from Supabase: {e}")
         return None
@@ -885,12 +943,15 @@ async def save_line_settings(settings_data: Dict[str, Any], hostname: str = None
     try:
         now = get_thai_iso()
 
-        # Prepare data for Supabase
+        # Encrypt sensitive tokens before saving
+        from encryption import encrypt
         data = {
-            "channel_access_token": settings_data.get("channel_access_token", ""),
-            "channel_secret": settings_data.get("channel_secret", ""),
+            "channel_access_token": encrypt(settings_data.get("channel_access_token", "")),
+            "channel_secret": encrypt(settings_data.get("channel_secret", "")),
             "user_ids": settings_data.get("user_ids", []),
+            "group_ids": settings_data.get("group_ids", []),
             "enabled": settings_data.get("enabled", False),
+            "webhook_url": settings_data.get("webhook_url", ""),
             "updated_at": now
         }
 
@@ -950,7 +1011,7 @@ async def get_global_line_settings() -> Optional[Dict[str, Any]]:
         # order_by format: "column.desc" for descending order
         result = await db.select("line_settings", filters={}, limit=1, order_by="updated_at.desc")
         if result:
-            settings = result[0]
+            settings = _decrypt_line_settings(result[0])
             logger.info(f"Got global LINE settings from Supabase (from hostname={settings.get('hostname')})")
             return settings
         return None

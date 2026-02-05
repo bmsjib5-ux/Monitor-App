@@ -18,6 +18,8 @@ if settings.use_supabase:
         get_alerts_by_type,
         get_unsent_alerts,
         mark_alert_as_sent,
+        get_unsent_process_alerts,
+        get_global_line_settings_for_notification,
         get_thresholds,
         update_thresholds,
         get_monitored_process,
@@ -265,6 +267,21 @@ if not settings.use_supabase:
             logger.warning(f"Could not mark alert as sent: {e}")
             return False
 
+    async def get_unsent_process_alerts(limit: int = 50):
+        """Get unsent PROCESS_STARTED and PROCESS_STOPPED alerts - MySQL fallback"""
+        return await Database.fetch_all(
+            """SELECT * FROM alerts
+               WHERE (line_sent IS NULL OR line_sent = FALSE)
+               AND alert_type IN ('PROCESS_STARTED', 'PROCESS_STOPPED')
+               ORDER BY created_at DESC LIMIT %s""",
+            (limit,)
+        )
+
+    async def get_global_line_settings_for_notification():
+        """Get global LINE settings - MySQL fallback (not implemented)"""
+        logger.warning("LINE settings storage in MySQL not implemented")
+        return None
+
 
 # Export all
 __all__ = [
@@ -276,6 +293,8 @@ __all__ = [
     'get_alerts_by_type',
     'get_unsent_alerts',
     'mark_alert_as_sent',
+    'get_unsent_process_alerts',
+    'get_global_line_settings_for_notification',
     'get_thresholds',
     'update_thresholds',
     'get_monitored_process',

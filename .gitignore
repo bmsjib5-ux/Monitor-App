@@ -46,6 +46,8 @@ data/
 
 # Environment
 .env
+master.key
+backend/master.key
 frontend/release/
 program install/
 installer-output/

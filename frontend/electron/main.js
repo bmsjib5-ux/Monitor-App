@@ -264,9 +264,12 @@ function waitForBackend(timeout = 30000) {
   });
 }
 
+// Map: import name -> pip package name (when different)
+const moduleToPip = { 'jwt': 'PyJWT' };
+
 // Check if required Python modules are installed
 function checkPythonModules(pythonPath) {
-  const requiredModules = ['fastapi', 'uvicorn', 'psutil', 'aiohttp'];
+  const requiredModules = ['fastapi', 'uvicorn', 'psutil', 'aiohttp', 'websockets', 'jwt', 'bcrypt', 'cryptography', 'pydantic', 'pydantic_settings', 'httpx', 'certifi'];
   const missing = [];
 
   for (const mod of requiredModules) {
@@ -308,16 +311,17 @@ async function installDependencies(pythonPath, backendPath) {
     log('requirements.txt not found, trying to install missing modules directly...');
     // Install missing modules directly
     for (const mod of missingModules) {
-      log(`Installing ${mod}...`);
-      const result = spawnSync(pythonPath, ['-m', 'pip', 'install', mod], {
+      const pipName = moduleToPip[mod] || mod;
+      log(`Installing ${pipName}...`);
+      const result = spawnSync(pythonPath, ['-m', 'pip', 'install', pipName], {
         encoding: 'utf8',
         timeout: 120000,
         shell: true
       });
       if (result.status !== 0) {
-        log(`Failed to install ${mod}: ${result.stderr}`);
+        log(`Failed to install ${pipName}: ${result.stderr}`);
       } else {
-        log(`Installed ${mod} successfully`);
+        log(`Installed ${pipName} successfully`);
       }
     }
     return checkPythonModules(pythonPath).length === 0;
@@ -351,7 +355,8 @@ async function installDependencies(pythonPath, backendPath) {
         if (stillMissing.length > 0) {
           log(`Still missing: ${stillMissing.join(', ')}, installing individually...`);
           for (const mod of stillMissing) {
-            spawnSync(pythonPath, ['-m', 'pip', 'install', mod], {
+            const pipName = moduleToPip[mod] || mod;
+            spawnSync(pythonPath, ['-m', 'pip', 'install', pipName], {
               encoding: 'utf8',
               timeout: 120000
             });

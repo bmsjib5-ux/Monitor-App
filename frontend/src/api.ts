@@ -208,6 +208,8 @@ export class WebSocketClient {
   private ws: WebSocket | null = null;
   private reconnectTimeout: NodeJS.Timeout | null = null;
   private onMessageCallback: ((data: any) => void) | null = null;
+  private reconnectAttempts: number = 0;
+  private static readonly MAX_RECONNECT_DELAY = 30000; // 30s max backoff
 
   connect(onMessage: (data: any) => void) {
     this.onMessageCallback = onMessage;
@@ -222,10 +224,18 @@ export class WebSocketClient {
         this.ws = null;
       }
 
-      this.ws = new WebSocket('ws://localhost:3001/ws');
+      // Include JWT token via Sec-WebSocket-Protocol header (more secure than query param)
+      const token = sessionStorage.getItem('masterToken');
+      const wsUrl = 'ws://localhost:3001/ws';
+      if (token) {
+        this.ws = new WebSocket(wsUrl, [`auth.${token}`]);
+      } else {
+        this.ws = new WebSocket(wsUrl);
+      }
 
       this.ws.onopen = () => {
-        console.log('✅ WebSocket connected');
+        console.log('WebSocket connected');
+        this.reconnectAttempts = 0; // Reset backoff on success
         if (this.reconnectTimeout) {
           clearTimeout(this.reconnectTimeout);
           this.reconnectTimeout = null;
@@ -266,10 +276,17 @@ export class WebSocketClient {
       return;
     }
 
+    // Exponential backoff: 3s, 6s, 12s, ... up to MAX_RECONNECT_DELAY
+    const delay = Math.min(
+      3000 * Math.pow(2, this.reconnectAttempts),
+      WebSocketClient.MAX_RECONNECT_DELAY
+    );
+    this.reconnectAttempts++;
+
     this.reconnectTimeout = setTimeout(() => {
-      console.log('Attempting to reconnect WebSocket...');
+      console.log(`Attempting to reconnect WebSocket (attempt ${this.reconnectAttempts})...`);
       this.createConnection();
-    }, 3000);
+    }, delay);
   }
 
   disconnect() {

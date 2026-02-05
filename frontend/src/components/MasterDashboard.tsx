@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { Search, Filter, RefreshCw, Building2, Activity, AlertTriangle, CheckCircle, XCircle, ChevronDown, ChevronUp, Moon, Sun, Monitor, LogOut, Play, Square, Trash2, X, TrendingUp, Clock, Bell, ArrowUpDown, ArrowUp, ArrowDown, MessageSquare, RotateCcw, GripVertical } from 'lucide-react';
+import { Search, Filter, RefreshCw, Building2, Activity, AlertTriangle, CheckCircle, XCircle, ChevronDown, ChevronUp, Moon, Sun, Monitor, LogOut, Play, Square, Trash2, X, TrendingUp, Clock, Bell, ArrowUpDown, ArrowUp, ArrowDown, MessageSquare, RotateCcw, GripVertical, Info, Shield, BookOpen } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, AreaChart, Area } from 'recharts';
 import { ProcessInfo, Alert } from '../types';
 import { api } from '../api';
@@ -186,6 +186,8 @@ const MasterDashboard = ({ onSwitchToClient, onLogout }: MasterDashboardProps) =
 
   // Settings modals
   const [showLineSettingsModal, setShowLineSettingsModal] = useState(false);
+  const [showInfoModal, setShowInfoModal] = useState(false);
+  const [infoTab, setInfoTab] = useState<'manual' | 'security'>('manual');
 
   // Column resize state - load from localStorage
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>(() => getColumnWidthsFromStorage());
@@ -1064,7 +1066,7 @@ const MasterDashboard = ({ onSwitchToClient, onLogout }: MasterDashboardProps) =
                     Master Mode
                   </span>
                   <span className="px-2 py-0.5 bg-white/30 text-white text-xs font-mono rounded">
-                    v4.0.55
+                    v4.0.60
                   </span>
                 </div>
                 <p className="text-sm text-purple-100">
@@ -1085,6 +1087,14 @@ const MasterDashboard = ({ onSwitchToClient, onLogout }: MasterDashboardProps) =
                     {unreadAlertsCount > 99 ? '99+' : unreadAlertsCount}
                   </span>
                 )}
+              </button>
+              {/* Information Button */}
+              <button
+                onClick={() => setShowInfoModal(true)}
+                className="p-2 rounded-lg bg-white/20 hover:bg-white/30 transition-colors"
+                title="ข้อมูลระบบ"
+              >
+                <Info className="w-5 h-5 text-white" />
               </button>
               {/* LINE OA Settings Button */}
               <button
@@ -1679,6 +1689,241 @@ const MasterDashboard = ({ onSwitchToClient, onLogout }: MasterDashboardProps) =
                           <Line type="monotone" dataKey="net_recv_mb" stroke="#06B6D4" name="Received (MB/s)" strokeWidth={2} dot={false} />
                         </LineChart>
                       </ResponsiveContainer>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Information Modal */}
+      {showInfoModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowInfoModal(false)}>
+          <div
+            className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700 bg-gradient-to-r from-purple-600 to-indigo-600">
+              <div className="flex items-center gap-3">
+                <Info className="w-6 h-6 text-white" />
+                <h2 className="text-xl font-bold text-white">Information</h2>
+              </div>
+              <button
+                onClick={() => setShowInfoModal(false)}
+                className="p-2 rounded-lg hover:bg-white/20 transition-colors"
+              >
+                <X className="w-6 h-6 text-white" />
+              </button>
+            </div>
+
+            {/* Tab Navigation */}
+            <div className="flex border-b border-gray-200 dark:border-gray-700">
+              <button
+                onClick={() => setInfoTab('manual')}
+                className={`flex items-center gap-2 px-6 py-3 text-sm font-medium border-b-2 transition-colors ${
+                  infoTab === 'manual'
+                    ? 'border-purple-600 text-purple-600 dark:text-purple-400'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300'
+                }`}
+              >
+                <BookOpen className="w-4 h-4" />
+                คู่มือการใช้งาน
+              </button>
+              <button
+                onClick={() => setInfoTab('security')}
+                className={`flex items-center gap-2 px-6 py-3 text-sm font-medium border-b-2 transition-colors ${
+                  infoTab === 'security'
+                    ? 'border-purple-600 text-purple-600 dark:text-purple-400'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300'
+                }`}
+              >
+                <Shield className="w-4 h-4" />
+                มาตรฐาน Cyber Security
+              </button>
+            </div>
+
+            {/* Tab Content */}
+            <div className="p-6 overflow-y-auto max-h-[calc(90vh-160px)]">
+              {infoTab === 'manual' ? (
+                <div className="space-y-6 text-gray-700 dark:text-gray-300">
+                  <div>
+                    <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-2">Windows Application Monitor v4.0.60</h3>
+                    <p className="text-sm">ระบบ Monitor การทำงานของโปรแกรม BMS HOSxP LIS Gateway แบบ Real-time สำหรับผู้ดูแลระบบส่วนกลาง</p>
+                  </div>
+
+                  <div>
+                    <h4 className="font-semibold text-gray-900 dark:text-white mb-2 flex items-center gap-2">
+                      <Monitor className="w-4 h-4 text-purple-500" /> โหมดการใช้งาน
+                    </h4>
+                    <div className="space-y-2 text-sm">
+                      <div className="bg-purple-50 dark:bg-purple-900/20 rounded-lg p-3">
+                        <span className="font-medium text-purple-700 dark:text-purple-300">Admin Mode (Master)</span>
+                        <p className="mt-1">ดูภาพรวมทุกสถานพยาบาล, จัดการ Process, ตั้งค่า LINE OA, ดู Alerts</p>
+                      </div>
+                      <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-3">
+                        <span className="font-medium text-blue-700 dark:text-blue-300">Client Mode</span>
+                        <p className="mt-1">ดูสถานะ Process ของเครื่องตัวเอง, เพิ่ม/ลบ Process ที่ต้องการ Monitor</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div>
+                    <h4 className="font-semibold text-gray-900 dark:text-white mb-2 flex items-center gap-2">
+                      <Activity className="w-4 h-4 text-green-500" /> ฟีเจอร์หลัก
+                    </h4>
+                    <ul className="space-y-1.5 text-sm list-none">
+                      <li className="flex items-start gap-2"><CheckCircle className="w-4 h-4 text-green-500 mt-0.5 flex-shrink-0" /> Monitor สถานะ Process แบบ Real-time (อัพเดททุก 2 วินาที)</li>
+                      <li className="flex items-start gap-2"><CheckCircle className="w-4 h-4 text-green-500 mt-0.5 flex-shrink-0" /> ดู CPU, Memory, Disk I/O, Network ของแต่ละ Process</li>
+                      <li className="flex items-start gap-2"><CheckCircle className="w-4 h-4 text-green-500 mt-0.5 flex-shrink-0" /> ตรวจสอบสถานะ BMS Gateway, DB HOSxP, DB Gateway</li>
+                      <li className="flex items-start gap-2"><CheckCircle className="w-4 h-4 text-green-500 mt-0.5 flex-shrink-0" /> แจ้งเตือนผ่าน LINE OA เมื่อ Process หยุดทำงาน</li>
+                      <li className="flex items-start gap-2"><CheckCircle className="w-4 h-4 text-green-500 mt-0.5 flex-shrink-0" /> กราฟแสดงข้อมูลย้อนหลัง 30 นาที</li>
+                      <li className="flex items-start gap-2"><CheckCircle className="w-4 h-4 text-green-500 mt-0.5 flex-shrink-0" /> รองรับ Dark Mode / Light Mode</li>
+                      <li className="flex items-start gap-2"><CheckCircle className="w-4 h-4 text-green-500 mt-0.5 flex-shrink-0" /> ปรับขนาดและลำดับคอลัมน์ได้ (ลาก Drag & Drop)</li>
+                      <li className="flex items-start gap-2"><CheckCircle className="w-4 h-4 text-green-500 mt-0.5 flex-shrink-0" /> กรองข้อมูลตามสถานพยาบาล, สถานะ, โปรแกรม</li>
+                    </ul>
+                  </div>
+
+                  <div>
+                    <h4 className="font-semibold text-gray-900 dark:text-white mb-2 flex items-center gap-2">
+                      <Bell className="w-4 h-4 text-yellow-500" /> ระบบแจ้งเตือน
+                    </h4>
+                    <ul className="space-y-1.5 text-sm list-none">
+                      <li className="flex items-start gap-2"><AlertTriangle className="w-4 h-4 text-yellow-500 mt-0.5 flex-shrink-0" /> แจ้งเตือนเมื่อ CPU เกิน 100%</li>
+                      <li className="flex items-start gap-2"><AlertTriangle className="w-4 h-4 text-yellow-500 mt-0.5 flex-shrink-0" /> แจ้งเตือนเมื่อ Memory เกิน 100%</li>
+                      <li className="flex items-start gap-2"><AlertTriangle className="w-4 h-4 text-yellow-500 mt-0.5 flex-shrink-0" /> แจ้งเตือนเมื่อ Process หยุดทำงาน</li>
+                      <li className="flex items-start gap-2"><AlertTriangle className="w-4 h-4 text-yellow-500 mt-0.5 flex-shrink-0" /> ส่ง LINE Notification อัตโนมัติ</li>
+                    </ul>
+                  </div>
+
+                  <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-4">
+                    <h4 className="font-semibold text-gray-900 dark:text-white mb-2">ปุ่มบน Header</h4>
+                    <div className="grid grid-cols-2 gap-2 text-sm">
+                      <div className="flex items-center gap-2"><Info className="w-4 h-4 text-white bg-purple-500 rounded p-0.5" /> ข้อมูลระบบ (หน้านี้)</div>
+                      <div className="flex items-center gap-2"><MessageSquare className="w-4 h-4 text-white bg-green-500 rounded p-0.5" /> ตั้งค่า LINE OA</div>
+                      <div className="flex items-center gap-2"><Bell className="w-4 h-4 text-white bg-purple-500 rounded p-0.5" /> ดูการแจ้งเตือน</div>
+                      <div className="flex items-center gap-2"><RefreshCw className="w-4 h-4 text-white bg-purple-500 rounded p-0.5" /> Refresh ข้อมูล</div>
+                      <div className="flex items-center gap-2"><Monitor className="w-4 h-4 text-white bg-purple-500 rounded p-0.5" /> สลับไป Client Mode</div>
+                      <div className="flex items-center gap-2"><Moon className="w-4 h-4 text-white bg-purple-500 rounded p-0.5" /> สลับ Dark/Light Mode</div>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-6 text-gray-700 dark:text-gray-300">
+                  <div>
+                    <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-2 flex items-center gap-2">
+                      <Shield className="w-5 h-5 text-green-500" /> Cyber Security Standards
+                    </h3>
+                    <p className="text-sm">มาตรการรักษาความปลอดภัยที่ใช้ในระบบ MonitorApp v4.0.60</p>
+                  </div>
+
+                  {/* Authentication & Authorization */}
+                  <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-4">
+                    <h4 className="font-semibold text-blue-800 dark:text-blue-300 mb-3">1. Authentication & Authorization</h4>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead><tr className="text-left border-b border-blue-200 dark:border-blue-800">
+                          <th className="pb-2 pr-4">มาตรการ</th><th className="pb-2 pr-4">รายละเอียด</th><th className="pb-2">มาตรฐาน</th>
+                        </tr></thead>
+                        <tbody className="space-y-1">
+                          <tr><td className="py-1.5 pr-4 font-medium">JWT Token</td><td className="py-1.5 pr-4">HS256 signed, หมดอายุ 8 ชม.</td><td className="py-1.5 text-xs text-blue-600 dark:text-blue-400">RFC 7519</td></tr>
+                          <tr><td className="py-1.5 pr-4 font-medium">Password Hashing</td><td className="py-1.5 pr-4">bcrypt with salt</td><td className="py-1.5 text-xs text-blue-600 dark:text-blue-400">OWASP Password Storage</td></tr>
+                          <tr><td className="py-1.5 pr-4 font-medium">Password Complexity</td><td className="py-1.5 pr-4">8+ ตัวอักษร, ตัวอักษร+ตัวเลข</td><td className="py-1.5 text-xs text-blue-600 dark:text-blue-400">NIST SP 800-63B</td></tr>
+                          <tr><td className="py-1.5 pr-4 font-medium">WebSocket Auth</td><td className="py-1.5 pr-4">Protocol-based token</td><td className="py-1.5 text-xs text-blue-600 dark:text-blue-400">RFC 6455</td></tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  {/* Encryption */}
+                  <div className="bg-green-50 dark:bg-green-900/20 rounded-lg p-4">
+                    <h4 className="font-semibold text-green-800 dark:text-green-300 mb-3">2. Encryption & Data Protection</h4>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead><tr className="text-left border-b border-green-200 dark:border-green-800">
+                          <th className="pb-2 pr-4">มาตรการ</th><th className="pb-2 pr-4">รายละเอียด</th><th className="pb-2">มาตรฐาน</th>
+                        </tr></thead>
+                        <tbody>
+                          <tr><td className="py-1.5 pr-4 font-medium">Fernet Encryption</td><td className="py-1.5 pr-4">AES-128-CBC + HMAC-SHA256</td><td className="py-1.5 text-xs text-green-600 dark:text-green-400">NIST AES</td></tr>
+                          <tr><td className="py-1.5 pr-4 font-medium">Master Key แยกไฟล์</td><td className="py-1.5 pr-4">ไม่อยู่ใน Git repository</td><td className="py-1.5 text-xs text-green-600 dark:text-green-400">OWASP Key Management</td></tr>
+                          <tr><td className="py-1.5 pr-4 font-medium">Key Rotation</td><td className="py-1.5 pr-4">CLI tool หมุนเปลี่ยน key ได้</td><td className="py-1.5 text-xs text-green-600 dark:text-green-400">NIST SP 800-57</td></tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  {/* Network Security */}
+                  <div className="bg-purple-50 dark:bg-purple-900/20 rounded-lg p-4">
+                    <h4 className="font-semibold text-purple-800 dark:text-purple-300 mb-3">3. Network Security</h4>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead><tr className="text-left border-b border-purple-200 dark:border-purple-800">
+                          <th className="pb-2 pr-4">มาตรการ</th><th className="pb-2 pr-4">รายละเอียด</th><th className="pb-2">มาตรฐาน</th>
+                        </tr></thead>
+                        <tbody>
+                          <tr><td className="py-1.5 pr-4 font-medium">CORS Restriction</td><td className="py-1.5 pr-4">จำกัด origins เฉพาะที่กำหนด</td><td className="py-1.5 text-xs text-purple-600 dark:text-purple-400">OWASP CORS</td></tr>
+                          <tr><td className="py-1.5 pr-4 font-medium">HTTPS/TLS</td><td className="py-1.5 pr-4">รองรับ SSL cert/key config</td><td className="py-1.5 text-xs text-purple-600 dark:text-purple-400">TLS 1.2+</td></tr>
+                          <tr><td className="py-1.5 pr-4 font-medium">Security Headers</td><td className="py-1.5 pr-4">CSP, X-Frame-Options, HSTS</td><td className="py-1.5 text-xs text-purple-600 dark:text-purple-400">OWASP Secure Headers</td></tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  {/* Input Validation */}
+                  <div className="bg-orange-50 dark:bg-orange-900/20 rounded-lg p-4">
+                    <h4 className="font-semibold text-orange-800 dark:text-orange-300 mb-3">4. Input Validation & Rate Limiting</h4>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead><tr className="text-left border-b border-orange-200 dark:border-orange-800">
+                          <th className="pb-2 pr-4">มาตรการ</th><th className="pb-2 pr-4">รายละเอียด</th><th className="pb-2">มาตรฐาน</th>
+                        </tr></thead>
+                        <tbody>
+                          <tr><td className="py-1.5 pr-4 font-medium">Login Rate Limiting</td><td className="py-1.5 pr-4">สูงสุด 5 ครั้ง / 5 นาที</td><td className="py-1.5 text-xs text-orange-600 dark:text-orange-400">OWASP Brute Force</td></tr>
+                          <tr><td className="py-1.5 pr-4 font-medium">Request Size Limit</td><td className="py-1.5 pr-4">จำกัด body 1MB</td><td className="py-1.5 text-xs text-orange-600 dark:text-orange-400">OWASP Input Validation</td></tr>
+                          <tr><td className="py-1.5 pr-4 font-medium">Input Sanitization</td><td className="py-1.5 pr-4">Pydantic validators</td><td className="py-1.5 text-xs text-orange-600 dark:text-orange-400">OWASP Input Validation</td></tr>
+                          <tr><td className="py-1.5 pr-4 font-medium">Error Sanitization</td><td className="py-1.5 pr-4">ไม่ส่ง internal error ให้ client</td><td className="py-1.5 text-xs text-orange-600 dark:text-orange-400">OWASP Error Handling</td></tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  {/* Logging */}
+                  <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-4">
+                    <h4 className="font-semibold text-gray-800 dark:text-gray-300 mb-3">5. Logging & Audit</h4>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead><tr className="text-left border-b border-gray-200 dark:border-gray-700">
+                          <th className="pb-2 pr-4">มาตรการ</th><th className="pb-2 pr-4">รายละเอียด</th><th className="pb-2">มาตรฐาน</th>
+                        </tr></thead>
+                        <tbody>
+                          <tr><td className="py-1.5 pr-4 font-medium">Security Audit</td><td className="py-1.5 pr-4">บันทึก request ที่น่าสงสัย</td><td className="py-1.5 text-xs text-gray-600 dark:text-gray-400">OWASP Logging</td></tr>
+                          <tr><td className="py-1.5 pr-4 font-medium">Structured Logging</td><td className="py-1.5 pr-4">Log file แยก, ระดับ configurable</td><td className="py-1.5 text-xs text-gray-600 dark:text-gray-400">-</td></tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  {/* Standards Reference */}
+                  <div className="bg-indigo-50 dark:bg-indigo-900/20 rounded-lg p-4">
+                    <h4 className="font-semibold text-indigo-800 dark:text-indigo-300 mb-3">มาตรฐานที่อ้างอิง</h4>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
+                      <div className="flex items-start gap-2">
+                        <Shield className="w-4 h-4 text-indigo-500 mt-0.5 flex-shrink-0" />
+                        <div><span className="font-medium">OWASP Top 10</span><br/><span className="text-xs text-gray-500 dark:text-gray-400">Injection, Broken Auth, Security Misconfiguration, Sensitive Data Exposure</span></div>
+                      </div>
+                      <div className="flex items-start gap-2">
+                        <Shield className="w-4 h-4 text-indigo-500 mt-0.5 flex-shrink-0" />
+                        <div><span className="font-medium">NIST SP 800-63B</span><br/><span className="text-xs text-gray-500 dark:text-gray-400">Digital Identity / Password Guidelines</span></div>
+                      </div>
+                      <div className="flex items-start gap-2">
+                        <Shield className="w-4 h-4 text-indigo-500 mt-0.5 flex-shrink-0" />
+                        <div><span className="font-medium">NIST SP 800-57</span><br/><span className="text-xs text-gray-500 dark:text-gray-400">Key Management Recommendation</span></div>
+                      </div>
+                      <div className="flex items-start gap-2">
+                        <Shield className="w-4 h-4 text-indigo-500 mt-0.5 flex-shrink-0" />
+                        <div><span className="font-medium">RFC 7519 / RFC 6455</span><br/><span className="text-xs text-gray-500 dark:text-gray-400">JSON Web Token / WebSocket Protocol</span></div>
+                      </div>
                     </div>
                   </div>
                 </div>

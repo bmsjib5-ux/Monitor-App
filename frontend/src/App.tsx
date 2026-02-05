@@ -3,6 +3,7 @@ import ModeSelector from './components/ModeSelector';
 import ClientDashboard from './components/ClientDashboard';
 import MasterDashboard from './components/MasterDashboard';
 import MasterLogin from './components/MasterLogin';
+import { PWAInstallBanner, OfflineIndicator } from './components/PWAInstallBanner';
 
 type AppMode = 'selector' | 'client' | 'master-login' | 'master';
 
@@ -21,9 +22,10 @@ function App() {
       if (elapsed < maxAge) {
         return true;
       }
-      // Session expired, clear it
+      // Session expired, clear all auth data
       sessionStorage.removeItem('masterAuth');
       sessionStorage.removeItem('masterAuthTime');
+      sessionStorage.removeItem('masterToken');
     }
     return false;
   };
@@ -83,22 +85,33 @@ function App() {
   const handleLogout = () => {
     sessionStorage.removeItem('masterAuth');
     sessionStorage.removeItem('masterAuthTime');
+    sessionStorage.removeItem('masterToken');
     setMode('master-login');
   };
 
-  if (mode === 'selector') {
-    return <ModeSelector onSelectMode={handleSelectMode} />;
-  }
+  const renderContent = () => {
+    if (mode === 'selector') {
+      return <ModeSelector onSelectMode={handleSelectMode} />;
+    }
 
-  if (mode === 'master-login') {
-    return <MasterLogin onLogin={handleMasterLogin} onBack={handleBackToSelector} />;
-  }
+    if (mode === 'master-login') {
+      return <MasterLogin onLogin={handleMasterLogin} onBack={handleBackToSelector} />;
+    }
 
-  if (mode === 'master') {
-    return <MasterDashboard onSwitchToClient={handleSwitchToClient} onLogout={handleLogout} />;
-  }
+    if (mode === 'master') {
+      return <MasterDashboard onSwitchToClient={handleSwitchToClient} onLogout={handleLogout} />;
+    }
 
-  return <ClientDashboard onSwitchToMaster={handleSwitchToMaster} />;
+    return <ClientDashboard onSwitchToMaster={handleSwitchToMaster} />;
+  };
+
+  return (
+    <>
+      <OfflineIndicator />
+      {renderContent()}
+      <PWAInstallBanner />
+    </>
+  );
 }
 
 export default App;

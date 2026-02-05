@@ -1,4 +1,4 @@
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Request
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Request, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
@@ -20,14 +20,21 @@ from models import (ProcessAdd, ProcessInfo, Alert, ThresholdConfig, ProcessCont
                     ProcessStartRequest, ProcessStopRequest, ProcessRestartRequest, ProcessDeleteRequest,
                     AlertSettings)
 from process_monitor import ProcessMonitor, get_window_titles_for_pid, parse_bms_window_title
+from auth import authenticate_user, create_access_token, verify_token, verify_ws_token
+from security_middleware import (
+    SecurityHeadersMiddleware, RequestSizeLimitMiddleware, SecurityAuditMiddleware,
+    rate_limiter,
+)
 from host_manager import HostManager
 from database_wrapper import (Database, save_process_data, save_alert,
                               get_monitored_process, save_monitored_process,
                               delete_monitored_process, get_all_monitored_processes,
                               get_line_settings_db, save_line_settings_db, get_global_line_settings_db,
-                              get_alerts_by_type, get_unsent_alerts, mark_alert_as_sent)
+                              get_alerts_by_type, get_unsent_alerts, mark_alert_as_sent,
+                              get_unsent_process_alerts, get_global_line_settings_for_notification)
 from restart_scheduler import restart_scheduler
 from line_notify import line_notify_service
+from bms_log_monitor import BMSLogMonitor, is_bms_process
 
 # Thailand timezone (UTC+7)
 THAI_TZ = timezone(timedelta(hours=7))
@@ -68,14 +75,19 @@ app = FastAPI(
     version=settings.app_version
 )
 
-# Configure CORS
+# Configure CORS - restricted to known origins only
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization", "X-API-Key"],
 )
+
+# Security middleware (order matters: outermost runs first)
+app.add_middleware(SecurityAuditMiddleware)
+app.add_middleware(RequestSizeLimitMiddleware)
+app.add_middleware(SecurityHeadersMiddleware)
 
 # Initialize process monitor
 monitor = ProcessMonitor()
@@ -112,6 +124,91 @@ class ConnectionManager:
                 self.active_connections.remove(connection)
 
 manager = ConnectionManager()
+
+# ============================================================
+# Authentication API Endpoints
+# ============================================================
+
+from pydantic import BaseModel as PydanticBaseModel, field_validator
+import re as re_module
+
+# Input validation helper
+_SAFE_NAME_RE = re_module.compile(r'^[\w\s\.\-\(\)]+$')
+
+def validate_safe_name(value: str, field_name: str = "name") -> str:
+    """Validate that a name contains only safe characters."""
+    if not value or len(value) > 255:
+        raise HTTPException(status_code=400, detail=f"Invalid {field_name}: must be 1-255 characters")
+    if not _SAFE_NAME_RE.match(value):
+        raise HTTPException(status_code=400, detail=f"Invalid {field_name}: contains disallowed characters")
+    return value.strip()
+
+
+class LoginRequest(PydanticBaseModel):
+    username: str
+    password: str
+
+    @field_validator('username')
+    @classmethod
+    def username_valid(cls, v: str) -> str:
+        if not v or len(v) > 100:
+            raise ValueError('Username must be 1-100 characters')
+        return v.strip()
+
+    @field_validator('password')
+    @classmethod
+    def password_not_empty(cls, v: str) -> str:
+        if not v:
+            raise ValueError('Password is required')
+        return v
+
+@app.post("/api/auth/login")
+async def login(request_body: LoginRequest, request: Request):
+    """Authenticate user and return JWT token (rate-limited)"""
+    client_ip = request.client.host if request.client else "unknown"
+    rate_key = f"login:{client_ip}"
+
+    # Rate limit check
+    if rate_limiter.is_rate_limited(
+        rate_key,
+        settings.rate_limit_login_max,
+        settings.rate_limit_login_window,
+    ):
+        logger.warning(f"Rate limit exceeded for login from {client_ip}")
+        raise HTTPException(
+            status_code=429,
+            detail="Too many login attempts. Please try again later.",
+            headers={"Retry-After": str(settings.rate_limit_login_window)},
+        )
+
+    if authenticate_user(request_body.username, request_body.password):
+        rate_limiter.reset(rate_key)  # Reset on success
+        token = create_access_token(request_body.username)
+        return {
+            "success": True,
+            "token": token,
+            "username": request_body.username,
+            "message": "Login successful"
+        }
+    # Generic error message - don't reveal whether username or password was wrong
+    raise HTTPException(status_code=401, detail="Invalid credentials")
+
+@app.post("/api/auth/verify")
+async def verify_auth(authorization: str = Header(None)):
+    """Verify if a JWT token is still valid"""
+    if not authorization:
+        raise HTTPException(status_code=401, detail="No token provided")
+
+    # Support "Bearer <token>" format
+    token = authorization
+    if authorization.startswith("Bearer "):
+        token = authorization[7:]
+
+    payload = verify_token(token)
+    if payload is None:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+
+    return {"valid": True, "username": payload.get("sub")}
 
 # Track saved alert timestamps to prevent duplicates
 saved_alert_timestamps = set()
@@ -218,29 +315,15 @@ async def broadcast_updates():
                     alert_key = f"{alert.timestamp}_{alert.process_name}_{alert.alert_type}"
                     if alert_key not in saved_alert_timestamps:
                         try:
-                            # Get hospital info for this process from database
-                            hospital_code = None
-                            hospital_name = None
-                            hostname = None
-                            try:
-                                import socket
-                                hostname = socket.gethostname()
-                                metadata = await get_monitored_process(alert.process_name)
-                                if metadata:
-                                    hospital_code = metadata.get('hospital_code')
-                                    hospital_name = metadata.get('hospital_name')
-                            except Exception as meta_err:
-                                logger.debug(f"Could not get hospital metadata for {alert.process_name}: {meta_err}")
-
                             alert_data = {
                                 'process_name': alert.process_name,
                                 'type': alert.alert_type,
                                 'message': alert.message,
                                 'value': alert.value,
                                 'threshold': getattr(alert, 'threshold', None),
-                                'hospital_code': hospital_code,
-                                'hospital_name': hospital_name,
-                                'hostname': hostname
+                                'hospital_code': getattr(alert, 'hospital_code', None),
+                                'hospital_name': getattr(alert, 'hospital_name', None),
+                                'hostname': getattr(alert, 'hostname', None) or current_hostname
                             }
                             await save_alert(alert_data)
                             saved_alert_timestamps.add(alert_key)
@@ -421,7 +504,7 @@ async def get_processes():
         return enriched_processes
     except Exception as e:
         logger.error(f"Error getting processes: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.post("/api/processes")
 async def add_process(process: ProcessAdd):
@@ -442,7 +525,7 @@ async def add_process(process: ProcessAdd):
             raise HTTPException(status_code=404, detail=f"Process {process.name} not found")
     except Exception as e:
         logger.error(f"Error adding process: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.delete("/api/processes/{process_name}")
 async def remove_process(process_name: str, request: ProcessDeleteRequest = None):
@@ -472,7 +555,7 @@ async def remove_process(process_name: str, request: ProcessDeleteRequest = None
         raise
     except Exception as e:
         logger.error(f"Error removing process: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.patch("/api/processes/{process_name}/metadata")
 async def update_process_metadata(process_name: str, metadata: ProcessMetadataUpdate):
@@ -585,7 +668,7 @@ async def get_process_history(process_name: str):
         return [h.dict() for h in history]
     except Exception as e:
         logger.error(f"Error getting process history: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.get("/api/available-processes")
 async def list_available_processes():
@@ -595,7 +678,7 @@ async def list_available_processes():
         return processes
     except Exception as e:
         logger.error(f"Error listing available processes: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.get("/api/processes/{process_name}/window-info")
 async def get_process_window_info(process_name: str, pid: Optional[int] = None):
@@ -691,7 +774,7 @@ async def get_process_window_info(process_name: str, pid: Optional[int] = None):
 
     except Exception as e:
         logger.error(f"Error getting window info for {process_name}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @app.get("/api/processes/{process_name}/bms-status")
@@ -725,7 +808,7 @@ async def get_process_bms_status(process_name: str):
 
     except Exception as e:
         logger.error(f"Error getting BMS status for {process_name}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @app.get("/api/alerts", response_model=List[Alert])
@@ -736,7 +819,7 @@ async def get_alerts(limit: int = 50):
         return alerts
     except Exception as e:
         logger.error(f"Error getting alerts: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.post("/api/thresholds")
 async def update_thresholds(thresholds: ThresholdConfig):
@@ -752,7 +835,7 @@ async def update_thresholds(thresholds: ThresholdConfig):
         return {"message": "Thresholds updated successfully", "thresholds": threshold_dict}
     except Exception as e:
         logger.error(f"Error updating thresholds: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.get("/api/thresholds")
 async def get_thresholds():
@@ -786,7 +869,7 @@ async def export_csv():
         )
     except Exception as e:
         logger.error(f"Error exporting CSV: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.get("/api/export/excel")
 async def export_excel():
@@ -818,7 +901,7 @@ async def export_excel():
         )
     except Exception as e:
         logger.error(f"Error exporting Excel: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 # Process Control Endpoints
 
@@ -865,7 +948,7 @@ async def stop_process(process_name: str, request: ProcessStopRequest = None):
         raise
     except Exception as e:
         logger.error(f"Error stopping process: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.post("/api/processes/{process_name}/start", response_model=ProcessControlResponse)
 async def start_process(process_name: str, request: ProcessStartRequest = None):
@@ -920,7 +1003,7 @@ async def start_process(process_name: str, request: ProcessStartRequest = None):
         raise
     except Exception as e:
         logger.error(f"Error starting process: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.post("/api/processes/{process_name}/restart", response_model=ProcessControlResponse)
 async def restart_process(process_name: str, request: ProcessRestartRequest = None):
@@ -974,13 +1057,11 @@ async def restart_process(process_name: str, request: ProcessRestartRequest = No
         raise
     except Exception as e:
         logger.error(f"Error restarting process: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 # ============================================================
 # Agent/Multi-Host Monitoring API Endpoints
 # ============================================================
-
-from fastapi import Header
 
 async def verify_agent_api_key(x_api_key: str = Header(None)):
     """Verify agent API key"""
@@ -1015,7 +1096,7 @@ async def register_agent(host_data: HostRegister, x_api_key: str = Header(None))
         }
     except Exception as e:
         logger.error(f"Error registering agent: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.post("/api/agents/heartbeat")
 async def agent_heartbeat(heartbeat: AgentHeartbeat, x_api_key: str = Header(None)):
@@ -1032,7 +1113,7 @@ async def agent_heartbeat(heartbeat: AgentHeartbeat, x_api_key: str = Header(Non
         raise
     except Exception as e:
         logger.error(f"Error processing heartbeat: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.get("/api/agents/{host_id}/processes")
 async def get_agent_monitored_processes(host_id: str, x_api_key: str = Header(None)):
@@ -1049,7 +1130,7 @@ async def get_agent_monitored_processes(host_id: str, x_api_key: str = Header(No
         raise
     except Exception as e:
         logger.error(f"Error getting monitored processes: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.post("/api/agents/{host_id}/metrics")
 async def receive_agent_metrics(host_id: str, metrics_data: dict, x_api_key: str = Header(None)):
@@ -1069,7 +1150,7 @@ async def receive_agent_metrics(host_id: str, metrics_data: dict, x_api_key: str
         raise
     except Exception as e:
         logger.error(f"Error receiving metrics: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 # ============================================================
 # Multi-Host Management API Endpoints
@@ -1086,7 +1167,7 @@ async def get_all_hosts():
         return hosts
     except Exception as e:
         logger.error(f"Error getting hosts: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.get("/api/hosts/{host_id}", response_model=HostInfo)
 async def get_host(host_id: str):
@@ -1103,7 +1184,7 @@ async def get_host(host_id: str):
         raise
     except Exception as e:
         logger.error(f"Error getting host: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.delete("/api/hosts/{host_id}")
 async def remove_host(host_id: str):
@@ -1118,7 +1199,7 @@ async def remove_host(host_id: str):
         raise
     except Exception as e:
         logger.error(f"Error removing host: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.get("/api/hosts/{host_id}/processes", response_model=List[HostProcessInfo])
 async def get_host_processes(host_id: str):
@@ -1128,7 +1209,7 @@ async def get_host_processes(host_id: str):
         return processes
     except Exception as e:
         logger.error(f"Error getting host processes: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.post("/api/hosts/{host_id}/processes")
 async def add_host_process(host_id: str, process: ProcessAdd):
@@ -1143,7 +1224,7 @@ async def add_host_process(host_id: str, process: ProcessAdd):
         raise
     except Exception as e:
         logger.error(f"Error adding process to host: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.delete("/api/hosts/{host_id}/processes/{process_name}")
 async def remove_host_process(host_id: str, process_name: str):
@@ -1158,7 +1239,7 @@ async def remove_host_process(host_id: str, process_name: str):
         raise
     except Exception as e:
         logger.error(f"Error removing process from host: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.get("/api/hosts/{host_id}/processes/{process_name}/history")
 async def get_host_process_history(host_id: str, process_name: str):
@@ -1168,7 +1249,7 @@ async def get_host_process_history(host_id: str, process_name: str):
         return history
     except Exception as e:
         logger.error(f"Error getting process history: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.get("/api/multi-host/processes", response_model=List[HostProcessInfo])
 async def get_all_host_processes():
@@ -1178,7 +1259,7 @@ async def get_all_host_processes():
         return processes
     except Exception as e:
         logger.error(f"Error getting all host processes: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.get("/api/stats")
 async def get_statistics():
@@ -1196,7 +1277,7 @@ async def get_statistics():
         }
     except Exception as e:
         logger.error(f"Error getting statistics: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 
@@ -1334,7 +1415,7 @@ async def init_database_tables():
         }
     except Exception as e:
         logger.error(f"Error initializing tables: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 # ============================================================
@@ -1436,7 +1517,7 @@ async def query_supabase_table(table_name: str, limit: int = 10):
 
     except Exception as e:
         logger.error(f"Supabase query failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.post("/api/supabase/init-tables")
 async def init_supabase_tables():
@@ -1456,7 +1537,7 @@ async def init_supabase_tables():
 
     except Exception as e:
         logger.error(f"Supabase init tables failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.post("/api/supabase/test-insert")
 async def test_supabase_insert():
@@ -1499,7 +1580,7 @@ async def test_supabase_insert():
 
     except Exception as e:
         logger.error(f"Supabase test insert failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.delete("/api/supabase/test-data")
 async def delete_supabase_test_data():
@@ -1519,7 +1600,7 @@ async def delete_supabase_test_data():
 
     except Exception as e:
         logger.error(f"Supabase delete test data failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 # ============================================================
@@ -1638,7 +1719,7 @@ async def query_localdb_table(table_name: str, limit: int = 10):
         raise
     except Exception as e:
         logger.error(f"LocalDB query failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.post("/api/localdb/init-tables")
 async def init_localdb_tables():
@@ -1662,7 +1743,7 @@ async def init_localdb_tables():
 
     except Exception as e:
         logger.error(f"LocalDB init tables failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.post("/api/localdb/test-insert")
 async def test_localdb_insert():
@@ -1707,7 +1788,7 @@ async def test_localdb_insert():
 
     except Exception as e:
         logger.error(f"LocalDB test insert failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.delete("/api/localdb/test-data")
 async def delete_localdb_test_data():
@@ -1727,19 +1808,42 @@ async def delete_localdb_test_data():
 
     except Exception as e:
         logger.error(f"LocalDB delete test data failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 # WebSocket endpoint
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
-    """WebSocket endpoint for real-time updates"""
-    await manager.connect(websocket)
+    """WebSocket endpoint for real-time updates (requires JWT token via protocol header)"""
+    # Verify JWT token from Sec-WebSocket-Protocol header or query param
+    payload = await verify_ws_token(websocket)
+
+    # Determine subprotocol to echo back if auth was via protocol
+    accepted_protocol = None
+    protocols = websocket.headers.get("sec-websocket-protocol", "")
+    for proto in protocols.split(","):
+        proto = proto.strip()
+        if proto.startswith("auth."):
+            accepted_protocol = proto
+            break
+
+    if payload is None:
+        # Allow unauthenticated connections from localhost (client mode)
+        client_host = websocket.client.host if websocket.client else ""
+        if client_host not in ("127.0.0.1", "localhost", "::1"):
+            await websocket.close(code=1008, reason="Authentication required")
+            return
+
+    if accepted_protocol:
+        await websocket.accept(subprotocol=accepted_protocol)
+        manager.active_connections.append(websocket)
+        logger.info(f"WebSocket client connected (protocol auth). Total: {len(manager.active_connections)}")
+    else:
+        await manager.connect(websocket)
+
     try:
         while True:
-            # Keep connection alive and listen for client messages
-            data = await websocket.receive_text()
-            # Echo back or handle client messages if needed
+            await websocket.receive_text()
     except WebSocketDisconnect:
         manager.disconnect(websocket)
     except Exception as e:
@@ -2318,6 +2422,150 @@ async def send_unsent_line_alerts(alert_type: str = None, limit: int = 10):
         logger.error(f"Error sending unsent LINE alerts: {e}")
         return {"success": False, "message": str(e)}
 
+
+@app.post("/api/line-oa/send-process-alerts")
+async def send_process_alerts_from_supabase(limit: int = 50):
+    """Send LINE notifications for PROCESS_STARTED and PROCESS_STOPPED alerts from Supabase
+
+    This API:
+    1. Fetches unsent alerts from Supabase where alert_type = PROCESS_STARTED or PROCESS_STOPPED
+    2. Gets LINE settings from Supabase (line_settings table)
+    3. Sends notifications to configured LINE users/groups
+    4. Marks alerts as sent in Supabase
+
+    Args:
+        limit: Maximum number of alerts to process (default: 50)
+
+    Returns:
+        Result of sending notifications including count of sent/failed
+    """
+    try:
+        # Step 1: Get LINE settings from Supabase
+        line_settings = await get_global_line_settings_for_notification()
+
+        if not line_settings:
+            return {
+                "success": False,
+                "message": "ไม่พบการตั้งค่า LINE ใน Supabase",
+                "sent": 0
+            }
+
+        # Check if LINE is enabled
+        if not line_settings.get("enabled", False):
+            return {
+                "success": False,
+                "message": "LINE notification ถูกปิดอยู่",
+                "sent": 0
+            }
+
+        # Configure LINE service with settings from Supabase
+        channel_access_token = line_settings.get("channel_access_token", "")
+        user_ids = line_settings.get("user_ids", [])
+        group_ids = line_settings.get("group_ids", [])
+
+        if not channel_access_token:
+            return {
+                "success": False,
+                "message": "ไม่พบ Channel Access Token",
+                "sent": 0
+            }
+
+        if not user_ids and not group_ids:
+            return {
+                "success": False,
+                "message": "ไม่พบ User ID หรือ Group ID สำหรับรับข้อความ",
+                "sent": 0
+            }
+
+        # Configure the LINE service
+        line_notify_service.configure(
+            channel_access_token=channel_access_token,
+            user_ids=user_ids if isinstance(user_ids, list) else [],
+            group_ids=group_ids if isinstance(group_ids, list) else [],
+            enabled=True
+        )
+
+        # Step 2: Get unsent process alerts from Supabase
+        alerts = await get_unsent_process_alerts(limit)
+
+        if not alerts:
+            return {
+                "success": True,
+                "message": "ไม่พบ alerts ที่ยังไม่ได้ส่ง (PROCESS_STARTED/PROCESS_STOPPED)",
+                "sent": 0,
+                "total": 0
+            }
+
+        # Step 3: Send notifications
+        sent_count = 0
+        errors = []
+
+        for alert in alerts:
+            try:
+                process_name = alert.get("process_name", "Unknown")
+                alert_type = alert.get("alert_type", "UNKNOWN")
+                message = alert.get("message", "")
+                hostname = alert.get("hostname")
+                hospital_name = alert.get("hospital_name")
+
+                # Send LINE notification
+                success = await line_notify_service.send_alert(
+                    process_name=process_name,
+                    alert_type=alert_type,
+                    message=message,
+                    hostname=hostname,
+                    hospital_name=hospital_name
+                )
+
+                if success:
+                    sent_count += 1
+                    # Mark as sent in Supabase
+                    alert_id = alert.get("id")
+                    if alert_id:
+                        await mark_alert_as_sent(alert_id)
+                    logger.info(f"Sent LINE alert: {alert_type} - {process_name}")
+                else:
+                    errors.append(f"Alert {alert.get('id')}: ส่งไม่สำเร็จ")
+
+            except Exception as e:
+                errors.append(f"Alert {alert.get('id')}: {str(e)}")
+                logger.error(f"Error sending alert {alert.get('id')}: {e}")
+
+        return {
+            "success": sent_count > 0,
+            "message": f"ส่งแจ้งเตือนสำเร็จ {sent_count}/{len(alerts)} รายการ",
+            "sent": sent_count,
+            "total": len(alerts),
+            "alert_types": ["PROCESS_STARTED", "PROCESS_STOPPED"],
+            "line_settings_source": "supabase",
+            "errors": errors if errors else None
+        }
+
+    except Exception as e:
+        logger.error(f"Error in send_process_alerts_from_supabase: {e}")
+        return {"success": False, "message": str(e), "sent": 0}
+
+
+@app.get("/api/line-oa/pending-process-alerts")
+async def get_pending_process_alerts(limit: int = 50):
+    """Get pending PROCESS_STARTED and PROCESS_STOPPED alerts that haven't been sent to LINE
+
+    Returns:
+        List of pending alerts from Supabase
+    """
+    try:
+        alerts = await get_unsent_process_alerts(limit)
+        return {
+            "success": True,
+            "alerts": alerts,
+            "count": len(alerts),
+            "alert_types": ["PROCESS_STARTED", "PROCESS_STOPPED"]
+        }
+    except Exception as e:
+        logger.error(f"Error getting pending process alerts: {e}")
+        return {"success": False, "message": str(e), "alerts": [], "count": 0}
+
+
 def _get_line_settings_path():
     """Get path for LINE settings file"""
     if os.name == 'nt':
@@ -2373,10 +2621,17 @@ def _init_line_oa():
     """Initialize LINE OA from saved settings"""
     settings_data = _load_line_settings()
     if settings_data.get("channel_access_token"):
+        # Ensure user_ids/group_ids are lists (Supabase may return bool/None)
+        user_ids = settings_data.get("user_ids", [])
+        group_ids = settings_data.get("group_ids", [])
+        if not isinstance(user_ids, list):
+            user_ids = []
+        if not isinstance(group_ids, list):
+            group_ids = []
         line_notify_service.configure(
             channel_access_token=settings_data["channel_access_token"],
-            user_ids=settings_data.get("user_ids", []),
-            group_ids=settings_data.get("group_ids", []),
+            user_ids=user_ids,
+            group_ids=group_ids,
             enabled=settings_data.get("enabled", False)
         )
         logger.info(f"LINE OA initialized. Users: {len(line_notify_service.user_ids)}, Groups: {len(line_notify_service.group_ids)}")
@@ -2506,6 +2761,263 @@ def _save_line_settings_local_only(settings_data: dict):
 
 
 # ============================================================
+# BMS Status LINE Notification API
+# ============================================================
+
+class BMSAlertRequest(PydanticBaseModel):
+    """Request model for BMS alert notification"""
+    process_name: str
+    alert_type: str  # DB_DISCONNECTED, GATEWAY_STOPPED, GATEWAY_ERROR, CUSTOM
+    message: Optional[str] = None
+    hospital_name: Optional[str] = None
+    hostname: Optional[str] = None
+
+
+@app.get("/api/line-oa/bms/status")
+async def get_bms_status_for_line(process_name: str = "BMSHOSxPLISServices"):
+    """Get current BMS Gateway status for LINE notification
+
+    Args:
+        process_name: Name of BMS process to check
+
+    Returns:
+        BMS Gateway status including DB connections, heartbeat, and thread status
+    """
+    try:
+        bms_monitor = BMSLogMonitor(process_name)
+        status = bms_monitor.get_status()
+
+        return {
+            "success": True,
+            "process_name": process_name,
+            "status": status.to_dict(),
+            "is_idle": not bms_monitor.is_any_thread_working(),
+            "log_path": bms_monitor.log_path
+        }
+    except Exception as e:
+        logger.error(f"Error getting BMS status: {e}")
+        return {"success": False, "message": str(e)}
+
+
+@app.post("/api/line-oa/bms/check-and-alert")
+async def check_bms_and_send_alert(process_name: str = "BMSHOSxPLISServices"):
+    """Check BMS status and send LINE alert if there's an issue
+
+    Checks for:
+    - HOSxP DB disconnected
+    - Gateway DB disconnected
+    - Gateway stopped
+    - Heartbeat stale
+
+    Only sends alert if LINE is configured and issue is detected.
+    """
+    if not line_notify_service.is_configured():
+        return {"success": False, "message": "LINE OA ยังไม่ได้ตั้งค่า", "alerts_sent": 0}
+
+    try:
+        bms_monitor = BMSLogMonitor(process_name)
+        status = bms_monitor.get_status()
+
+        alerts_sent = 0
+        issues_found = []
+
+        # Check HOSxP DB connection
+        if status.hosxp_db_status == 'disconnected':
+            issues_found.append({
+                "type": "DB_DISCONNECTED",
+                "message": f"HOSxP DB ไม่สามารถเชื่อมต่อได้: {status.hosxp_db_last_error or 'Unknown error'}"
+            })
+
+        # Check Gateway DB connection
+        if status.gateway_db_status == 'disconnected':
+            issues_found.append({
+                "type": "DB_DISCONNECTED",
+                "message": f"Gateway DB ไม่สามารถเชื่อมต่อได้: {status.gateway_db_last_error or 'Unknown error'}"
+            })
+
+        # Check Gateway status
+        if status.gateway_status == 'stopped':
+            issues_found.append({
+                "type": "GATEWAY_STOPPED",
+                "message": "Gateway หยุดทำงาน"
+            })
+
+        # Check heartbeat stale
+        if status.heartbeat_stale and status.gateway_status != 'stopped':
+            issues_found.append({
+                "type": "GATEWAY_ERROR",
+                "message": "Gateway ไม่ตอบสนอง (Heartbeat หยุด)"
+            })
+
+        # Send alerts for each issue
+        hostname = socket_module.gethostname()
+        for issue in issues_found:
+            success = await line_notify_service.send_alert(
+                process_name=process_name,
+                alert_type=issue["type"],
+                message=issue["message"],
+                hostname=hostname,
+                hospital_name=None  # Will be filled from monitored process if available
+            )
+            if success:
+                alerts_sent += 1
+
+        return {
+            "success": True,
+            "process_name": process_name,
+            "issues_found": len(issues_found),
+            "alerts_sent": alerts_sent,
+            "issues": issues_found,
+            "gateway_status": status.gateway_status,
+            "hosxp_db_status": status.hosxp_db_status,
+            "gateway_db_status": status.gateway_db_status
+        }
+
+    except Exception as e:
+        logger.error(f"Error checking BMS and sending alert: {e}")
+        return {"success": False, "message": str(e), "alerts_sent": 0}
+
+
+@app.post("/api/line-oa/bms/send-alert")
+async def send_bms_alert(request: BMSAlertRequest):
+    """Send custom BMS alert to LINE
+
+    Args:
+        request: BMSAlertRequest with process_name, alert_type, message, etc.
+
+    Alert types:
+    - DB_DISCONNECTED: Database connection lost
+    - GATEWAY_STOPPED: Gateway process stopped
+    - GATEWAY_ERROR: Gateway error or not responding
+    - GATEWAY_STARTED: Gateway started (green alert)
+    - CUSTOM: Custom message
+    """
+    if not line_notify_service.is_configured():
+        return {"success": False, "message": "LINE OA ยังไม่ได้ตั้งค่า"}
+
+    try:
+        # Default message based on alert type
+        message = request.message
+        if not message:
+            alert_messages = {
+                "DB_DISCONNECTED": "ไม่สามารถเชื่อมต่อฐานข้อมูลได้",
+                "GATEWAY_STOPPED": "Gateway หยุดทำงาน",
+                "GATEWAY_ERROR": "Gateway พบข้อผิดพลาด",
+                "GATEWAY_STARTED": "Gateway เริ่มทำงานแล้ว",
+                "CUSTOM": "แจ้งเตือนจาก BMS Gateway"
+            }
+            message = alert_messages.get(request.alert_type, request.alert_type)
+
+        hostname = request.hostname or socket_module.gethostname()
+
+        success = await line_notify_service.send_alert(
+            process_name=request.process_name,
+            alert_type=request.alert_type,
+            message=message,
+            hostname=hostname,
+            hospital_name=request.hospital_name
+        )
+
+        if success:
+            logger.info(f"BMS alert sent: {request.alert_type} - {message}")
+            return {"success": True, "message": "ส่งแจ้งเตือนสำเร็จ"}
+        else:
+            return {"success": False, "message": "ไม่สามารถส่งแจ้งเตือนได้"}
+
+    except Exception as e:
+        logger.error(f"Error sending BMS alert: {e}")
+        return {"success": False, "message": str(e)}
+
+
+@app.post("/api/line-oa/bms/send-db-alert")
+async def send_bms_db_alert(
+    process_name: str = "BMSHOSxPLISServices",
+    db_type: str = "hosxp",  # hosxp or gateway
+    error_message: Optional[str] = None
+):
+    """Send BMS Database connection alert to LINE
+
+    Args:
+        process_name: BMS process name
+        db_type: Database type (hosxp or gateway)
+        error_message: Optional error message
+    """
+    if not line_notify_service.is_configured():
+        return {"success": False, "message": "LINE OA ยังไม่ได้ตั้งค่า"}
+
+    try:
+        db_name = "HOSxP" if db_type.lower() == "hosxp" else "Gateway"
+        message = error_message or f"{db_name} DB ไม่สามารถเชื่อมต่อได้"
+
+        hostname = socket_module.gethostname()
+
+        success = await line_notify_service.send_alert(
+            process_name=process_name,
+            alert_type="DB_DISCONNECTED",
+            message=message,
+            hostname=hostname
+        )
+
+        return {
+            "success": success,
+            "message": "ส่งแจ้งเตือนสำเร็จ" if success else "ไม่สามารถส่งแจ้งเตือนได้",
+            "db_type": db_type
+        }
+
+    except Exception as e:
+        logger.error(f"Error sending BMS DB alert: {e}")
+        return {"success": False, "message": str(e)}
+
+
+@app.post("/api/line-oa/bms/send-gateway-alert")
+async def send_bms_gateway_alert(
+    process_name: str = "BMSHOSxPLISServices",
+    status: str = "stopped",  # stopped, started, error
+    message: Optional[str] = None
+):
+    """Send BMS Gateway status alert to LINE
+
+    Args:
+        process_name: BMS process name
+        status: Gateway status (stopped, started, error)
+        message: Optional custom message
+    """
+    if not line_notify_service.is_configured():
+        return {"success": False, "message": "LINE OA ยังไม่ได้ตั้งค่า"}
+
+    try:
+        status_messages = {
+            "stopped": ("GATEWAY_STOPPED", "Gateway หยุดทำงาน"),
+            "started": ("GATEWAY_STARTED", "Gateway เริ่มทำงานแล้ว"),
+            "error": ("GATEWAY_ERROR", "Gateway พบข้อผิดพลาด")
+        }
+
+        alert_type, default_message = status_messages.get(
+            status.lower(),
+            ("GATEWAY_ERROR", f"Gateway status: {status}")
+        )
+
+        hostname = socket_module.gethostname()
+
+        success = await line_notify_service.send_alert(
+            process_name=process_name,
+            alert_type=alert_type,
+            message=message or default_message,
+            hostname=hostname
+        )
+
+        return {
+            "success": success,
+            "message": "ส่งแจ้งเตือนสำเร็จ" if success else "ไม่สามารถส่งแจ้งเตือนได้",
+            "gateway_status": status
+        }
+
+    except Exception as e:
+        logger.error(f"Error sending BMS Gateway alert: {e}")
+        return {"success": False, "message": str(e)}
+
+
+# ============================================================
 # Clear Cache API (for cleaning old/orphaned data)
 # ============================================================
 
@@ -2590,7 +3102,7 @@ async def clear_cache():
 
     except Exception as e:
         logger.error(f"Error clearing cache: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 # ============================================================
@@ -2650,10 +3162,16 @@ else:
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(
-        "main:app",
-        host=settings.host,
-        port=settings.port,
-        reload=False,
-        log_level=settings.log_level.lower()
-    )
+    uvicorn_kwargs = {
+        "app": "main:app",
+        "host": settings.host,
+        "port": settings.port,
+        "reload": False,
+        "log_level": settings.log_level.lower(),
+    }
+    # Enable HTTPS if SSL cert/key configured
+    if settings.ssl_certfile and settings.ssl_keyfile:
+        uvicorn_kwargs["ssl_certfile"] = settings.ssl_certfile
+        uvicorn_kwargs["ssl_keyfile"] = settings.ssl_keyfile
+        logger.info("Starting with HTTPS/TLS enabled")
+    uvicorn.run(**uvicorn_kwargs)

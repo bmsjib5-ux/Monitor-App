@@ -40,9 +40,9 @@ class LineOAService:
                   group_ids: List[str] = None, enabled: bool = True):
         """Configure LINE OA with Channel Access Token, User IDs and Group IDs"""
         self.channel_access_token = channel_access_token
-        if user_ids:
+        if user_ids and isinstance(user_ids, list):
             self.user_ids = user_ids
-        if group_ids:
+        if group_ids and isinstance(group_ids, list):
             self.group_ids = group_ids
         self.enabled = enabled
         logger.info(f"LINE OA configured. Enabled: {enabled}, Users: {len(self.user_ids)}, Groups: {len(self.group_ids)}")
