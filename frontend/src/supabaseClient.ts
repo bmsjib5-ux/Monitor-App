@@ -7,7 +7,7 @@
 
 // Supabase configuration - Public anon key (read-only)
 const SUPABASE_URL = 'https://ktkklfpncuhvduxxumhb.supabase.co';
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imt0a2tsZnBuY3VodmR1eHh1bWhiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Mzc5NTM2NjAsImV4cCI6MjA1MzUyOTY2MH0.sb_publishable_5O2X0d0UEweFyrQA5dQ74w_VV5FbiXUU_bJ-B0Q';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imt0a2tsZnBuY3VodmR1eHh1bWhiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjgxODg5NTQsImV4cCI6MjA4Mzc2NDk1NH0.zJDdchPJWwQoSFi2Q9pB72_TcvTfvuvz2pXECtM8NwA';
 
 // Check if running on GitHub Pages
 export const isGitHubPages = (): boolean => {
