@@ -224,7 +224,7 @@ function GitHubPagesDashboard({ onLogout }: GitHubPagesDashboardProps) {
             <div className="flex items-center gap-3">
               <Wifi className="w-8 h-8 text-cyan-400" />
               <div>
-                <p className="text-2xl font-bold">{processes.filter(p => p.bms_gateway_status === 'running').length}</p>
+                <p className="text-2xl font-bold">{new Set(processes.filter(p => p.bms_gateway_status === 'running').map(p => p.hospital_code)).size}</p>
                 <p className="text-sm text-gray-400">Gateway Online</p>
               </div>
             </div>
