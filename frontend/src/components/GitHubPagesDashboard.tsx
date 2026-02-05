@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react';
-import { RefreshCw, Activity, AlertTriangle, CheckCircle, XCircle, Clock, Building2, Monitor, LogOut, Cpu, HardDrive, Database, Wifi } from 'lucide-react';
+import { RefreshCw, Activity, AlertTriangle, CheckCircle, XCircle, Clock, Building2, Monitor, LogOut, Cpu, HardDrive, Database, Wifi, ArrowUpDown } from 'lucide-react';
 import { supabaseApi, ProcessHistory, AlertRecord, getGitHubPagesUser } from '../supabaseClient';
 import PushNotificationToggle from './PushNotificationToggle';
+
+type SortOption = 'hospital' | 'status' | 'cpu' | 'memory' | 'update';
 
 interface ProcessGroup {
   hospitalCode: string;
@@ -21,6 +23,7 @@ function GitHubPagesDashboard({ onLogout }: GitHubPagesDashboardProps) {
   const [error, setError] = useState<string | null>(null);
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
   const [activeTab, setActiveTab] = useState<'processes' | 'alerts'>('processes');
+  const [sortBy, setSortBy] = useState<SortOption>('hospital');
 
   const fetchData = async () => {
     setLoading(true);
@@ -47,8 +50,29 @@ function GitHubPagesDashboard({ onLogout }: GitHubPagesDashboardProps) {
     return () => clearInterval(interval);
   }, []);
 
+  // Sort processes based on selected option
+  const sortedProcesses = [...processes].sort((a, b) => {
+    switch (sortBy) {
+      case 'status':
+        // Stopped first, then running
+        if (a.status !== b.status) {
+          return a.status === 'stopped' ? -1 : 1;
+        }
+        return (a.hospital_name || '').localeCompare(b.hospital_name || '', 'th');
+      case 'cpu':
+        return (b.cpu_percent || 0) - (a.cpu_percent || 0);
+      case 'memory':
+        return (b.memory_mb || 0) - (a.memory_mb || 0);
+      case 'update':
+        return new Date(b.recorded_at || 0).getTime() - new Date(a.recorded_at || 0).getTime();
+      case 'hospital':
+      default:
+        return (a.hospital_name || '').localeCompare(b.hospital_name || '', 'th');
+    }
+  });
+
   // Group processes by hospital
-  const groupedProcesses = processes.reduce<ProcessGroup[]>((acc, proc) => {
+  const groupedProcesses = sortedProcesses.reduce<ProcessGroup[]>((acc, proc) => {
     const code = proc.hospital_code || 'unknown';
     const name = proc.hospital_name || 'ไม่ระบุสถานพยาบาล';
 
@@ -61,8 +85,10 @@ function GitHubPagesDashboard({ onLogout }: GitHubPagesDashboardProps) {
     return acc;
   }, []);
 
-  // Sort by hospital name
-  groupedProcesses.sort((a, b) => a.hospitalName.localeCompare(b.hospitalName, 'th'));
+  // Sort groups by hospital name (only for hospital sort mode)
+  if (sortBy === 'hospital') {
+    groupedProcesses.sort((a, b) => a.hospitalName.localeCompare(b.hospitalName, 'th'));
+  }
 
   // Count stats
   const totalHospitals = new Set(processes.map(p => p.hospital_code).filter(Boolean)).size;
@@ -203,28 +229,48 @@ function GitHubPagesDashboard({ onLogout }: GitHubPagesDashboardProps) {
           </p>
         </div>
 
-        {/* Tabs */}
-        <div className="flex gap-2 mb-4">
-          <button
-            onClick={() => setActiveTab('processes')}
-            className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-              activeTab === 'processes'
-                ? 'bg-blue-600 text-white'
-                : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+        {/* Tabs and Sort */}
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+          <div className="flex gap-2">
+            <button
+              onClick={() => setActiveTab('processes')}
+              className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                activeTab === 'processes'
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+              }`}
+            >
+              Processes ({totalProcesses})
+            </button>
+            <button
+              onClick={() => setActiveTab('alerts')}
+              className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                activeTab === 'alerts'
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
             }`}
-          >
-            Processes ({totalProcesses})
-          </button>
-          <button
-            onClick={() => setActiveTab('alerts')}
-            className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-              activeTab === 'alerts'
-                ? 'bg-blue-600 text-white'
-                : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
-            }`}
-          >
-            Alerts ({alerts.length})
-          </button>
+            >
+              Alerts ({alerts.length})
+            </button>
+          </div>
+
+          {/* Sort Dropdown - only show for processes tab */}
+          {activeTab === 'processes' && (
+            <div className="flex items-center gap-2">
+              <ArrowUpDown className="w-4 h-4 text-gray-400" />
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value as SortOption)}
+                className="bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-sm text-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="hospital">โรงพยาบาล</option>
+                <option value="status">สถานะ (Stopped ก่อน)</option>
+                <option value="cpu">CPU สูงสุด</option>
+                <option value="memory">Memory สูงสุด</option>
+                <option value="update">อัพเดทล่าสุด</option>
+              </select>
+            </div>
+          )}
         </div>
 
         {/* Content */}
