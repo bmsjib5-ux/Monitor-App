@@ -1,7 +1,7 @@
 import axios from 'axios';
 import { ProcessInfo, Alert, ThresholdConfig, AvailableProcess, ProcessMetrics, ProcessControlResponse, DatabaseConfig, DatabaseStatus, RestartSchedule, AutoStartSchedule, AlertSettings, WindowInfo, BMSGatewayStatus } from './types';
 
-const API_BASE_URL = 'http://localhost:3001';
+const API_BASE_URL = 'http://localhost:8000';
 
 export const api = {
   // System info
@@ -226,7 +226,7 @@ export class WebSocketClient {
 
       // Include JWT token via Sec-WebSocket-Protocol header (more secure than query param)
       const token = sessionStorage.getItem('masterToken');
-      const wsUrl = 'ws://localhost:3001/ws';
+      const wsUrl = 'ws://localhost:8000/ws';
       if (token) {
         this.ws = new WebSocket(wsUrl, [`auth.${token}`]);
       } else {
