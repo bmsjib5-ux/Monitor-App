@@ -102,8 +102,112 @@ export interface AlertRecord {
   line_sent: boolean | null;
 }
 
-// API functions for GitHub Pages (read-only)
+// Auth response type
+export interface AuthResult {
+  success: boolean;
+  user_id: number | null;
+  username: string | null;
+  display_name: string | null;
+  role: string | null;
+}
+
+// Session storage keys
+const AUTH_KEY = 'ghPagesAuth';
+const AUTH_USER_KEY = 'ghPagesUser';
+const AUTH_TIME_KEY = 'ghPagesAuthTime';
+
+// Check if authenticated on GitHub Pages
+export const isGitHubPagesAuthenticated = (): boolean => {
+  if (!isGitHubPages()) return false;
+
+  const auth = sessionStorage.getItem(AUTH_KEY);
+  const authTime = sessionStorage.getItem(AUTH_TIME_KEY);
+
+  if (auth === 'true' && authTime) {
+    const elapsed = Date.now() - parseInt(authTime);
+    const maxAge = 8 * 60 * 60 * 1000; // 8 hours
+    if (elapsed < maxAge) {
+      return true;
+    }
+    // Session expired
+    sessionStorage.removeItem(AUTH_KEY);
+    sessionStorage.removeItem(AUTH_USER_KEY);
+    sessionStorage.removeItem(AUTH_TIME_KEY);
+  }
+  return false;
+};
+
+// Get current user info
+export const getGitHubPagesUser = (): { username: string; displayName: string; role: string } | null => {
+  const userStr = sessionStorage.getItem(AUTH_USER_KEY);
+  if (userStr) {
+    try {
+      return JSON.parse(userStr);
+    } catch {
+      return null;
+    }
+  }
+  return null;
+};
+
+// Logout
+export const logoutGitHubPages = (): void => {
+  sessionStorage.removeItem(AUTH_KEY);
+  sessionStorage.removeItem(AUTH_USER_KEY);
+  sessionStorage.removeItem(AUTH_TIME_KEY);
+};
+
+// API functions for GitHub Pages
 export const supabaseApi = {
+  // Login via Supabase RPC function
+  login: async (username: string, password: string): Promise<{ success: boolean; message: string; user?: AuthResult }> => {
+    try {
+      const response = await fetch(`${SUPABASE_URL}/rest/v1/rpc/verify_admin_password`, {
+        method: 'POST',
+        headers: {
+          'apikey': SUPABASE_ANON_KEY,
+          'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          p_username: username,
+          p_password: password,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Login error:', errorText);
+        return { success: false, message: 'เกิดข้อผิดพลาดในการเชื่อมต่อ' };
+      }
+
+      const results: AuthResult[] = await response.json();
+      const result = results[0];
+
+      if (result && result.success) {
+        // Save session
+        sessionStorage.setItem(AUTH_KEY, 'true');
+        sessionStorage.setItem(AUTH_TIME_KEY, Date.now().toString());
+        sessionStorage.setItem(AUTH_USER_KEY, JSON.stringify({
+          username: result.username,
+          displayName: result.display_name,
+          role: result.role,
+        }));
+
+        return {
+          success: true,
+          message: 'เข้าสู่ระบบสำเร็จ',
+          user: result,
+        };
+      } else {
+        return { success: false, message: 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง' };
+      }
+    } catch (error: any) {
+      console.error('Login error:', error);
+      return { success: false, message: error.message || 'เกิดข้อผิดพลาด' };
+    }
+  },
+
   // Get all monitored processes
   getMonitoredProcesses: async (): Promise<MonitoredProcess[]> => {
     return supabase.select<MonitoredProcess>('monitored_processes', {

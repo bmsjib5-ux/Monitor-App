@@ -4,8 +4,9 @@ import ClientDashboard from './components/ClientDashboard';
 import MasterDashboard from './components/MasterDashboard';
 import MasterLogin from './components/MasterLogin';
 import GitHubPagesDashboard from './components/GitHubPagesDashboard';
+import GitHubPagesLogin from './components/GitHubPagesLogin';
 import { PWAInstallBanner, OfflineIndicator } from './components/PWAInstallBanner';
-import { isGitHubPages } from './supabaseClient';
+import { isGitHubPages, isGitHubPagesAuthenticated, logoutGitHubPages } from './supabaseClient';
 
 type AppMode = 'selector' | 'client' | 'master-login' | 'master';
 
@@ -117,19 +118,45 @@ function LocalApp() {
   );
 }
 
-// Root App component - switches between GitHub Pages and Local mode
-function App() {
-  // Check if running on GitHub Pages - show read-only dashboard
-  const onGitHubPages = isGitHubPages();
+// GitHub Pages App with authentication
+function GitHubPagesApp() {
+  const [isAuthenticated, setIsAuthenticated] = useState(isGitHubPagesAuthenticated());
 
-  if (onGitHubPages) {
+  const handleLogin = () => {
+    setIsAuthenticated(true);
+  };
+
+  const handleLogout = () => {
+    logoutGitHubPages();
+    setIsAuthenticated(false);
+  };
+
+  if (!isAuthenticated) {
     return (
       <>
         <OfflineIndicator />
-        <GitHubPagesDashboard />
+        <GitHubPagesLogin onLogin={handleLogin} />
         <PWAInstallBanner />
       </>
     );
+  }
+
+  return (
+    <>
+      <OfflineIndicator />
+      <GitHubPagesDashboard onLogout={handleLogout} />
+      <PWAInstallBanner />
+    </>
+  );
+}
+
+// Root App component - switches between GitHub Pages and Local mode
+function App() {
+  // Check if running on GitHub Pages
+  const onGitHubPages = isGitHubPages();
+
+  if (onGitHubPages) {
+    return <GitHubPagesApp />;
   }
 
   return <LocalApp />;

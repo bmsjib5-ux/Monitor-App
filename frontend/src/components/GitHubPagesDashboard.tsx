@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
-import { RefreshCw, Activity, AlertTriangle, CheckCircle, XCircle, Clock, Building2, Monitor } from 'lucide-react';
-import { supabaseApi, MonitoredProcess, AlertRecord } from '../supabaseClient';
+import { RefreshCw, Activity, AlertTriangle, CheckCircle, XCircle, Clock, Building2, Monitor, LogOut } from 'lucide-react';
+import { supabaseApi, MonitoredProcess, AlertRecord, getGitHubPagesUser } from '../supabaseClient';
 
 interface ProcessGroup {
   hospitalCode: string;
@@ -8,7 +8,12 @@ interface ProcessGroup {
   processes: MonitoredProcess[];
 }
 
-function GitHubPagesDashboard() {
+interface GitHubPagesDashboardProps {
+  onLogout?: () => void;
+}
+
+function GitHubPagesDashboard({ onLogout }: GitHubPagesDashboardProps) {
+  const user = getGitHubPagesUser();
   const [processes, setProcesses] = useState<MonitoredProcess[]>([]);
   const [alerts, setAlerts] = useState<AlertRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -90,18 +95,33 @@ function GitHubPagesDashboard() {
             </div>
           </div>
           <div className="flex items-center gap-4">
+            {user && (
+              <span className="text-sm text-gray-300">
+                {user.displayName || user.username}
+              </span>
+            )}
             {lastUpdate && (
               <span className="text-xs text-gray-400">
-                อัพเดทล่าสุด: {lastUpdate.toLocaleTimeString('th-TH')}
+                อัพเดท: {lastUpdate.toLocaleTimeString('th-TH')}
               </span>
             )}
             <button
               onClick={fetchData}
               disabled={loading}
               className="p-2 bg-blue-600 hover:bg-blue-700 rounded-lg disabled:opacity-50"
+              title="รีเฟรช"
             >
               <RefreshCw className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} />
             </button>
+            {onLogout && (
+              <button
+                onClick={onLogout}
+                className="p-2 bg-red-600 hover:bg-red-700 rounded-lg"
+                title="ออกจากระบบ"
+              >
+                <LogOut className="w-5 h-5" />
+              </button>
+            )}
           </div>
         </div>
       </header>
