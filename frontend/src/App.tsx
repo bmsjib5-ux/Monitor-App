@@ -3,11 +3,14 @@ import ModeSelector from './components/ModeSelector';
 import ClientDashboard from './components/ClientDashboard';
 import MasterDashboard from './components/MasterDashboard';
 import MasterLogin from './components/MasterLogin';
+import GitHubPagesDashboard from './components/GitHubPagesDashboard';
 import { PWAInstallBanner, OfflineIndicator } from './components/PWAInstallBanner';
+import { isGitHubPages } from './supabaseClient';
 
 type AppMode = 'selector' | 'client' | 'master-login' | 'master';
 
-function App() {
+// Main app for local/Electron environment
+function LocalApp() {
   const [mode, setMode] = useState<AppMode>('selector');
 
   // Check authentication status for master mode
@@ -112,6 +115,24 @@ function App() {
       <PWAInstallBanner />
     </>
   );
+}
+
+// Root App component - switches between GitHub Pages and Local mode
+function App() {
+  // Check if running on GitHub Pages - show read-only dashboard
+  const onGitHubPages = isGitHubPages();
+
+  if (onGitHubPages) {
+    return (
+      <>
+        <OfflineIndicator />
+        <GitHubPagesDashboard />
+        <PWAInstallBanner />
+      </>
+    );
+  }
+
+  return <LocalApp />;
 }
 
 export default App;
