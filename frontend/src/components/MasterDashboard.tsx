@@ -1,11 +1,12 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { Search, Filter, RefreshCw, Building2, Activity, AlertTriangle, CheckCircle, XCircle, ChevronDown, ChevronUp, Moon, Sun, Monitor, LogOut, Play, Square, Trash2, X, TrendingUp, Clock, Bell, ArrowUpDown, ArrowUp, ArrowDown, MessageSquare, RotateCcw, GripVertical, Info, Shield, BookOpen } from 'lucide-react';
+import { Search, Filter, RefreshCw, Building2, Activity, AlertTriangle, CheckCircle, XCircle, ChevronDown, ChevronUp, Moon, Sun, Monitor, LogOut, Play, Square, Trash2, X, TrendingUp, Clock, Bell, ArrowUpDown, ArrowUp, ArrowDown, MessageSquare, RotateCcw, GripVertical, Info, Shield, BookOpen, Users } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, AreaChart, Area } from 'recharts';
 import { ProcessInfo, Alert } from '../types';
 import { api } from '../api';
 import ToastNotification from './ToastNotification';
 import AlertPanel from './AlertPanel';
 import LineSettingsModal from './LineSettingsModal';
+import UserManagementModal from './UserManagementModal';
 import BMSStatusIndicator from './BMSStatusIndicator';
 
 interface ProcessHistoryData {
@@ -186,6 +187,7 @@ const MasterDashboard = ({ onSwitchToClient, onLogout }: MasterDashboardProps) =
 
   // Settings modals
   const [showLineSettingsModal, setShowLineSettingsModal] = useState(false);
+  const [showUserManagementModal, setShowUserManagementModal] = useState(false);
   const [showInfoModal, setShowInfoModal] = useState(false);
   const [infoTab, setInfoTab] = useState<'manual' | 'security'>('manual');
 
@@ -1096,6 +1098,14 @@ const MasterDashboard = ({ onSwitchToClient, onLogout }: MasterDashboardProps) =
               >
                 <Info className="w-5 h-5 text-white" />
               </button>
+              {/* User Management Button */}
+              <button
+                onClick={() => setShowUserManagementModal(true)}
+                className="p-2 rounded-lg bg-blue-500/80 hover:bg-blue-600 transition-colors"
+                title="จัดการผู้ใช้โรงพยาบาล"
+              >
+                <Users className="w-5 h-5 text-white" />
+              </button>
               {/* LINE OA Settings Button */}
               <button
                 onClick={() => setShowLineSettingsModal(true)}
@@ -1519,6 +1529,14 @@ const MasterDashboard = ({ onSwitchToClient, onLogout }: MasterDashboardProps) =
         <LineSettingsModal
           isOpen={showLineSettingsModal}
           onClose={() => setShowLineSettingsModal(false)}
+        />
+      )}
+
+      {/* User Management Modal */}
+      {showUserManagementModal && (
+        <UserManagementModal
+          isOpen={showUserManagementModal}
+          onClose={() => setShowUserManagementModal(false)}
         />
       )}
 

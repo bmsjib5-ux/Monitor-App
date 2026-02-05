@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
-import { RefreshCw, Activity, AlertTriangle, CheckCircle, XCircle, Clock, Building2, Monitor, LogOut, Cpu, HardDrive, Database, Wifi, ArrowUpDown } from 'lucide-react';
-import { supabaseApi, ProcessHistory, AlertRecord, getGitHubPagesUser } from '../supabaseClient';
+import { useState, useEffect, useMemo } from 'react';
+import { RefreshCw, Activity, AlertTriangle, CheckCircle, XCircle, Clock, Building2, Monitor, LogOut, Cpu, HardDrive, Database, Wifi, ArrowUpDown, Shield } from 'lucide-react';
+import { supabaseApi, ProcessHistory, AlertRecord, getGitHubPagesUser, UserInfo } from '../supabaseClient';
 import PushNotificationToggle from './PushNotificationToggle';
 
 type SortOption = 'hospital' | 'status' | 'cpu' | 'memory' | 'update';
@@ -16,7 +16,10 @@ interface GitHubPagesDashboardProps {
 }
 
 function GitHubPagesDashboard({ onLogout }: GitHubPagesDashboardProps) {
-  const user = getGitHubPagesUser();
+  const user = getGitHubPagesUser() as UserInfo | null;
+  const isAdmin = user?.isAdmin ?? false;
+  const userHospitalCode = user?.hospitalCode;
+
   const [processes, setProcesses] = useState<ProcessHistory[]>([]);
   const [alerts, setAlerts] = useState<AlertRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -43,6 +46,22 @@ function GitHubPagesDashboard({ onLogout }: GitHubPagesDashboardProps) {
     }
   };
 
+  // Filter processes based on user's hospital_code (if not admin)
+  const filteredProcesses = useMemo(() => {
+    if (isAdmin || !userHospitalCode) {
+      return processes;
+    }
+    return processes.filter(p => p.hospital_code === userHospitalCode);
+  }, [processes, isAdmin, userHospitalCode]);
+
+  // Filter alerts based on user's hospital_code (if not admin)
+  const filteredAlerts = useMemo(() => {
+    if (isAdmin || !userHospitalCode) {
+      return alerts;
+    }
+    return alerts.filter(a => a.hospital_code === userHospitalCode);
+  }, [alerts, isAdmin, userHospitalCode]);
+
   useEffect(() => {
     fetchData();
     // Auto refresh every 30 seconds
@@ -50,8 +69,8 @@ function GitHubPagesDashboard({ onLogout }: GitHubPagesDashboardProps) {
     return () => clearInterval(interval);
   }, []);
 
-  // Sort processes based on selected option
-  const sortedProcesses = [...processes].sort((a, b) => {
+  // Sort processes based on selected option (use filtered data)
+  const sortedProcesses = [...filteredProcesses].sort((a, b) => {
     switch (sortBy) {
       case 'status':
         // Stopped first, then running
@@ -90,11 +109,11 @@ function GitHubPagesDashboard({ onLogout }: GitHubPagesDashboardProps) {
     groupedProcesses.sort((a, b) => a.hospitalName.localeCompare(b.hospitalName, 'th'));
   }
 
-  // Count stats
-  const totalHospitals = new Set(processes.map(p => p.hospital_code).filter(Boolean)).size;
-  const totalProcesses = processes.length;
-  const runningProcesses = processes.filter(p => p.status === 'running').length;
-  const recentAlerts = alerts.filter(a => {
+  // Count stats (use filtered data)
+  const totalHospitals = new Set(filteredProcesses.map(p => p.hospital_code).filter(Boolean)).size;
+  const totalProcesses = filteredProcesses.length;
+  const runningProcesses = filteredProcesses.filter(p => p.status === 'running').length;
+  const recentAlerts = filteredAlerts.filter(a => {
     const alertTime = new Date(a.created_at);
     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
     return alertTime > oneHourAgo;
@@ -142,9 +161,16 @@ function GitHubPagesDashboard({ onLogout }: GitHubPagesDashboardProps) {
           </div>
           <div className="flex items-center gap-4">
             {user && (
-              <span className="text-sm text-gray-300">
-                {user.displayName || user.username}
-              </span>
+              <div className="flex items-center gap-2">
+                {isAdmin ? (
+                  <span className="px-2 py-0.5 bg-purple-600 text-white text-xs rounded-full">Admin</span>
+                ) : (
+                  <span className="px-2 py-0.5 bg-blue-600 text-white text-xs rounded-full">{user.hospitalCode}</span>
+                )}
+                <span className="text-sm text-gray-300">
+                  {user.displayName || user.username}
+                </span>
+              </div>
             )}
             {lastUpdate && (
               <span className="text-xs text-gray-400">
@@ -222,10 +248,21 @@ function GitHubPagesDashboard({ onLogout }: GitHubPagesDashboardProps) {
         )}
 
         {/* Read-Only Notice */}
-        <div className="bg-blue-900/30 border border-blue-500/50 rounded-lg p-3 mb-4">
-          <p className="text-blue-200 text-sm">
-            <span className="font-semibold">Read-Only Mode:</span> กำลังดูข้อมูลจาก Supabase โดยตรง
-            ไม่สามารถควบคุม process หรือแก้ไขข้อมูลได้
+        <div className={`${isAdmin ? 'bg-blue-900/30 border-blue-500/50' : 'bg-yellow-900/30 border-yellow-500/50'} border rounded-lg p-3 mb-4`}>
+          <p className={`${isAdmin ? 'text-blue-200' : 'text-yellow-200'} text-sm`}>
+            {isAdmin ? (
+              <>
+                <span className="font-semibold flex items-center gap-1 inline-flex">
+                  <Shield className="w-4 h-4" /> Admin Mode:
+                </span> ดูข้อมูลทุกสถานพยาบาล (Read-Only)
+              </>
+            ) : (
+              <>
+                <span className="font-semibold flex items-center gap-1 inline-flex">
+                  <Building2 className="w-4 h-4" /> {user?.hospitalName || user?.hospitalCode}:
+                </span> ดูข้อมูลเฉพาะสถานพยาบาลของท่าน (Read-Only)
+              </>
+            )}
           </p>
         </div>
 
@@ -250,7 +287,7 @@ function GitHubPagesDashboard({ onLogout }: GitHubPagesDashboardProps) {
                   : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
             }`}
             >
-              Alerts ({alerts.length})
+              Alerts ({filteredAlerts.length})
             </button>
           </div>
 
@@ -375,13 +412,13 @@ function GitHubPagesDashboard({ onLogout }: GitHubPagesDashboardProps) {
         {activeTab === 'alerts' && (
           <div className="bg-gray-800 rounded-lg border border-gray-700 overflow-hidden">
             <div className="divide-y divide-gray-700">
-              {alerts.length === 0 ? (
+              {filteredAlerts.length === 0 ? (
                 <div className="text-center py-12 text-gray-400">
                   <CheckCircle className="w-8 h-8 mx-auto mb-2 text-green-400" />
                   <p>ไม่มี alerts</p>
                 </div>
               ) : (
-                alerts.map((alert) => (
+                filteredAlerts.map((alert) => (
                   <div key={alert.id} className="px-4 py-3 hover:bg-gray-750">
                     <div className="flex items-start justify-between">
                       <div className="flex items-start gap-3">

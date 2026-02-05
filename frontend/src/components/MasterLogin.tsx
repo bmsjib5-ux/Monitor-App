@@ -1,8 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Lock, User, Eye, EyeOff, AlertCircle, LayoutDashboard } from 'lucide-react';
-import axios from 'axios';
-
-const API_BASE_URL = 'http://localhost:8000';
+import { supabaseApi } from '../supabaseClient';
 
 interface MasterLoginProps {
   onLogin: () => void;
@@ -37,16 +35,13 @@ function MasterLogin({ onLogin, onBack }: MasterLoginProps) {
     setLoading(true);
 
     try {
-      const response = await axios.post(`${API_BASE_URL}/api/auth/login`, {
-        username,
-        password,
-      });
+      // Login via Supabase RPC (hospital_users table)
+      const result = await supabaseApi.login(username, password);
 
-      if (response.data.success) {
-        // Save JWT token securely in sessionStorage
+      if (result.success) {
+        // Save auth state in sessionStorage
         sessionStorage.setItem('masterAuth', 'true');
         sessionStorage.setItem('masterAuthTime', Date.now().toString());
-        sessionStorage.setItem('masterToken', response.data.token);
 
         // Save or clear username based on remember me checkbox
         if (rememberMe) {
@@ -61,13 +56,12 @@ function MasterLogin({ onLogin, onBack }: MasterLoginProps) {
         localStorage.removeItem('masterSavedPass');
 
         onLogin();
+      } else {
+        setError(result.message || 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง');
       }
     } catch (err: any) {
-      if (err.response?.status === 401) {
-        setError('ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง');
-      } else {
-        setError('เกิดข้อผิดพลาดในการเชื่อมต่อ กรุณาลองใหม่อีกครั้ง');
-      }
+      console.error('Login error:', err);
+      setError('เกิดข้อผิดพลาดในการเชื่อมต่อ กรุณาลองใหม่อีกครั้ง');
     } finally {
       setLoading(false);
     }

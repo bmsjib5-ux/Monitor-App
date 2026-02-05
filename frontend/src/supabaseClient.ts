@@ -152,6 +152,20 @@ export interface AuthResult {
   role: string | null;
 }
 
+// Hospital user type
+export interface HospitalUser {
+  id: number;
+  username: string;
+  display_name: string | null;
+  hospital_code: string;
+  hospital_name: string | null;
+  role: string;
+  is_active: boolean;
+  last_login: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 // Session storage keys
 const AUTH_KEY = 'ghPagesAuth';
 const AUTH_USER_KEY = 'ghPagesUser';
@@ -178,8 +192,18 @@ export const isGitHubPagesAuthenticated = (): boolean => {
   return false;
 };
 
+// User info type with hospital data
+export interface UserInfo {
+  username: string;
+  displayName: string;
+  role: string;
+  hospitalCode?: string;
+  hospitalName?: string;
+  isAdmin: boolean;
+}
+
 // Get current user info
-export const getGitHubPagesUser = (): { username: string; displayName: string; role: string } | null => {
+export const getGitHubPagesUser = (): UserInfo | null => {
   const userStr = sessionStorage.getItem(AUTH_USER_KEY);
   if (userStr) {
     try {
@@ -200,10 +224,11 @@ export const logoutGitHubPages = (): void => {
 
 // API functions for GitHub Pages
 export const supabaseApi = {
-  // Login via Supabase RPC function
+  // Login via Supabase RPC function (uses hospital_users table for all users)
   login: async (username: string, password: string): Promise<{ success: boolean; message: string; user?: AuthResult }> => {
     try {
-      const response = await fetch(`${SUPABASE_URL}/rest/v1/rpc/verify_admin_password`, {
+      // Login via hospital_users table (supports both admin and hospital users)
+      const response = await fetch(`${SUPABASE_URL}/rest/v1/rpc/verify_hospital_user_password`, {
         method: 'POST',
         headers: {
           'apikey': SUPABASE_ANON_KEY,
@@ -216,33 +241,41 @@ export const supabaseApi = {
         }),
       });
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('Login error:', errorText);
-        return { success: false, message: 'เกิดข้อผิดพลาดในการเชื่อมต่อ' };
+      if (response.ok) {
+        const results = await response.json();
+        const result = results[0];
+
+        if (result && result.success) {
+          // Check if user is admin (role='admin')
+          const isAdmin = result.role === 'admin';
+
+          // Login successful
+          sessionStorage.setItem(AUTH_KEY, 'true');
+          sessionStorage.setItem(AUTH_TIME_KEY, Date.now().toString());
+          sessionStorage.setItem(AUTH_USER_KEY, JSON.stringify({
+            username: result.username,
+            displayName: result.display_name,
+            role: result.role || 'user',
+            hospitalCode: result.hospital_code || undefined,
+            hospitalName: result.hospital_name || undefined,
+            isAdmin: isAdmin,
+          } as UserInfo));
+
+          return {
+            success: true,
+            message: isAdmin ? 'เข้าสู่ระบบสำเร็จ (Admin)' : 'เข้าสู่ระบบสำเร็จ',
+            user: {
+              success: true,
+              user_id: result.user_id,
+              username: result.username,
+              display_name: result.display_name,
+              role: result.role || 'user',
+            },
+          };
+        }
       }
 
-      const results: AuthResult[] = await response.json();
-      const result = results[0];
-
-      if (result && result.success) {
-        // Save session
-        sessionStorage.setItem(AUTH_KEY, 'true');
-        sessionStorage.setItem(AUTH_TIME_KEY, Date.now().toString());
-        sessionStorage.setItem(AUTH_USER_KEY, JSON.stringify({
-          username: result.username,
-          displayName: result.display_name,
-          role: result.role,
-        }));
-
-        return {
-          success: true,
-          message: 'เข้าสู่ระบบสำเร็จ',
-          user: result,
-        };
-      } else {
-        return { success: false, message: 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง' };
-      }
+      return { success: false, message: 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง' };
     } catch (error: any) {
       console.error('Login error:', error);
       return { success: false, message: error.message || 'เกิดข้อผิดพลาด' };
@@ -338,6 +371,129 @@ export const supabaseApi = {
     } catch (error) {
       console.error('Error removing subscription:', error);
       return false;
+    }
+  },
+
+  // =============================================
+  // Hospital User Management
+  // =============================================
+
+  // Get all hospital users
+  getHospitalUsers: async (): Promise<HospitalUser[]> => {
+    return supabase.select<HospitalUser>('hospital_users', {
+      order: 'hospital_code.asc,username.asc',
+    });
+  },
+
+  // Create hospital user
+  createHospitalUser: async (data: {
+    username: string;
+    password: string;
+    display_name: string;
+    hospital_code: string;
+    hospital_name?: string;
+  }): Promise<{ success: boolean; user_id?: number; message: string }> => {
+    try {
+      const response = await fetch(`${SUPABASE_URL}/rest/v1/rpc/create_hospital_user`, {
+        method: 'POST',
+        headers: {
+          'apikey': SUPABASE_ANON_KEY,
+          'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          p_username: data.username,
+          p_password: data.password,
+          p_display_name: data.display_name,
+          p_hospital_code: data.hospital_code,
+          p_hospital_name: data.hospital_name || null,
+        }),
+      });
+
+      if (!response.ok) {
+        const error = await response.text();
+        return { success: false, message: error };
+      }
+
+      const result = await response.json();
+      if (Array.isArray(result) && result.length > 0) {
+        return result[0];
+      }
+      return { success: false, message: 'Unknown error' };
+    } catch (error: any) {
+      return { success: false, message: error.message };
+    }
+  },
+
+  // Update hospital user
+  updateHospitalUser: async (data: {
+    user_id: number;
+    display_name?: string;
+    hospital_code?: string;
+    hospital_name?: string;
+    is_active?: boolean;
+    new_password?: string;
+  }): Promise<{ success: boolean; message: string }> => {
+    try {
+      const response = await fetch(`${SUPABASE_URL}/rest/v1/rpc/update_hospital_user`, {
+        method: 'POST',
+        headers: {
+          'apikey': SUPABASE_ANON_KEY,
+          'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          p_user_id: data.user_id,
+          p_display_name: data.display_name || null,
+          p_hospital_code: data.hospital_code || null,
+          p_hospital_name: data.hospital_name || null,
+          p_is_active: data.is_active ?? null,
+          p_new_password: data.new_password || null,
+        }),
+      });
+
+      if (!response.ok) {
+        const error = await response.text();
+        return { success: false, message: error };
+      }
+
+      const result = await response.json();
+      if (Array.isArray(result) && result.length > 0) {
+        return result[0];
+      }
+      return { success: false, message: 'Unknown error' };
+    } catch (error: any) {
+      return { success: false, message: error.message };
+    }
+  },
+
+  // Delete hospital user
+  deleteHospitalUser: async (userId: number): Promise<{ success: boolean; message: string }> => {
+    try {
+      const response = await fetch(`${SUPABASE_URL}/rest/v1/rpc/delete_hospital_user`, {
+        method: 'POST',
+        headers: {
+          'apikey': SUPABASE_ANON_KEY,
+          'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          p_user_id: userId,
+        }),
+      });
+
+      if (!response.ok) {
+        const error = await response.text();
+        return { success: false, message: error };
+      }
+
+      const result = await response.json();
+      if (Array.isArray(result) && result.length > 0) {
+        return result[0];
+      }
+      return { success: false, message: 'Unknown error' };
+    } catch (error: any) {
+      return { success: false, message: error.message };
     }
   },
 };
