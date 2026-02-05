@@ -198,9 +198,16 @@ class SupabaseDatabase:
         """Select data from table"""
         params = {}
 
+        # PostgREST operators that should not be wrapped with eq.
+        postgrest_operators = ('eq.', 'neq.', 'gt.', 'gte.', 'lt.', 'lte.', 'like.', 'ilike.', 'is.', 'in.', 'or.', 'and.', 'not.')
+
         if filters:
             for key, value in filters.items():
-                params[key] = f"eq.{value}"
+                # Check if value already has a PostgREST operator
+                if isinstance(value, str) and value.startswith(postgrest_operators):
+                    params[key] = value
+                else:
+                    params[key] = f"eq.{value}"
 
         if limit:
             params["limit"] = limit
@@ -217,16 +224,24 @@ class SupabaseDatabase:
     async def update(self, table: str, filters: Dict[str, Any], data: Dict[str, Any]) -> Optional[List[Dict]]:
         """Update data in table"""
         params = {}
+        postgrest_operators = ('eq.', 'neq.', 'gt.', 'gte.', 'lt.', 'lte.', 'like.', 'ilike.', 'is.', 'in.', 'or.', 'and.', 'not.')
         for key, value in filters.items():
-            params[key] = f"eq.{value}"
+            if isinstance(value, str) and value.startswith(postgrest_operators):
+                params[key] = value
+            else:
+                params[key] = f"eq.{value}"
 
         return await self._request("PATCH", table, data=data, params=params)
 
     async def delete(self, table: str, filters: Dict[str, Any]) -> None:
         """Delete data from table"""
         params = {}
+        postgrest_operators = ('eq.', 'neq.', 'gt.', 'gte.', 'lt.', 'lte.', 'like.', 'ilike.', 'is.', 'in.', 'or.', 'and.', 'not.')
         for key, value in filters.items():
-            params[key] = f"eq.{value}"
+            if isinstance(value, str) and value.startswith(postgrest_operators):
+                params[key] = value
+            else:
+                params[key] = f"eq.{value}"
 
         await self._request("DELETE", table, params=params)
 
