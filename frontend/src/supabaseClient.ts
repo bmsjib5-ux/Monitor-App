@@ -86,6 +86,47 @@ export interface MonitoredProcess {
   created_at: string;
 }
 
+// Process History - ข้อมูลละเอียดจาก process_history table
+export interface ProcessHistory {
+  id: number;
+  process_name: string;
+  pid: number | null;
+  status: string;
+  cpu_percent: number;
+  memory_mb: number;
+  memory_percent: number;
+  disk_read_mb: number;
+  disk_write_mb: number;
+  net_sent_mb: number;
+  net_recv_mb: number;
+  recorded_at: string;
+  hostname: string;
+  uptime_seconds: number | null;
+  thread_count: number | null;
+  hospital_code: string | null;
+  hospital_name: string | null;
+  last_started: string | null;
+  last_stopped: string | null;
+  program_path: string | null;
+  client_version: string | null;
+  window_title: string | null;
+  window_info: {
+    company?: string | null;
+    version?: string | null;
+    window_title?: string | null;
+    hospital_code?: string | null;
+    hospital_name?: string | null;
+  } | null;
+  bms_gateway_status: string | null;
+  bms_hosxp_db_status: string | null;
+  bms_gateway_db_status: string | null;
+  bms_last_heartbeat: string | null;
+  bms_heartbeat_stale: boolean | null;
+  bms_log_path: string | null;
+  bms_hosxp_db_error: string | null;
+  bms_gateway_db_error: string | null;
+}
+
 export interface AlertRecord {
   id: number;
   process_name: string;
@@ -208,9 +249,9 @@ export const supabaseApi = {
     }
   },
 
-  // Get all monitored processes
-  getMonitoredProcesses: async (): Promise<MonitoredProcess[]> => {
-    return supabase.select<MonitoredProcess>('monitored_processes', {
+  // Get all monitored processes (from process_history)
+  getMonitoredProcesses: async (): Promise<ProcessHistory[]> => {
+    return supabase.select<ProcessHistory>('process_history', {
       order: 'hospital_name.asc,hostname.asc',
     });
   },

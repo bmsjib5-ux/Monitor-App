@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react';
-import { RefreshCw, Activity, AlertTriangle, CheckCircle, XCircle, Clock, Building2, Monitor, LogOut } from 'lucide-react';
-import { supabaseApi, MonitoredProcess, AlertRecord, getGitHubPagesUser } from '../supabaseClient';
+import { RefreshCw, Activity, AlertTriangle, CheckCircle, XCircle, Clock, Building2, Monitor, LogOut, Cpu, HardDrive, Database, Wifi } from 'lucide-react';
+import { supabaseApi, ProcessHistory, AlertRecord, getGitHubPagesUser } from '../supabaseClient';
 
 interface ProcessGroup {
   hospitalCode: string;
   hospitalName: string;
-  processes: MonitoredProcess[];
+  processes: ProcessHistory[];
 }
 
 interface GitHubPagesDashboardProps {
@@ -14,7 +14,7 @@ interface GitHubPagesDashboardProps {
 
 function GitHubPagesDashboard({ onLogout }: GitHubPagesDashboardProps) {
   const user = getGitHubPagesUser();
-  const [processes, setProcesses] = useState<MonitoredProcess[]>([]);
+  const [processes, setProcesses] = useState<ProcessHistory[]>([]);
   const [alerts, setAlerts] = useState<AlertRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -66,13 +66,15 @@ function GitHubPagesDashboard({ onLogout }: GitHubPagesDashboardProps) {
   // Count stats
   const totalHospitals = new Set(processes.map(p => p.hospital_code).filter(Boolean)).size;
   const totalProcesses = processes.length;
+  const runningProcesses = processes.filter(p => p.status === 'running').length;
   const recentAlerts = alerts.filter(a => {
     const alertTime = new Date(a.created_at);
     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
     return alertTime > oneHourAgo;
   }).length;
 
-  const formatTime = (dateStr: string) => {
+  const formatTime = (dateStr: string | null) => {
+    if (!dateStr) return '-';
     const date = new Date(dateStr);
     return date.toLocaleString('th-TH', {
       hour: '2-digit',
@@ -80,6 +82,23 @@ function GitHubPagesDashboard({ onLogout }: GitHubPagesDashboardProps) {
       day: '2-digit',
       month: '2-digit',
     });
+  };
+
+  const formatUptime = (seconds: number | null) => {
+    if (!seconds) return '-';
+    const hours = Math.floor(seconds / 3600);
+    const mins = Math.floor((seconds % 3600) / 60);
+    if (hours > 24) {
+      const days = Math.floor(hours / 24);
+      return `${days}d ${hours % 24}h`;
+    }
+    return `${hours}h ${mins}m`;
+  };
+
+  const getDbStatusIcon = (status: string | null) => {
+    if (status === 'connected') return <Database className="w-3 h-3 text-green-400" />;
+    if (status === 'disconnected') return <Database className="w-3 h-3 text-red-400" />;
+    return <Database className="w-3 h-3 text-gray-500" />;
   };
 
   return (
@@ -128,7 +147,7 @@ function GitHubPagesDashboard({ onLogout }: GitHubPagesDashboardProps) {
 
       {/* Stats */}
       <div className="max-w-7xl mx-auto px-4 py-4">
-        <div className="grid grid-cols-3 gap-4 mb-6">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
           <div className="bg-gray-800 rounded-lg p-4 border border-gray-700">
             <div className="flex items-center gap-3">
               <Building2 className="w-8 h-8 text-blue-400" />
@@ -142,8 +161,17 @@ function GitHubPagesDashboard({ onLogout }: GitHubPagesDashboardProps) {
             <div className="flex items-center gap-3">
               <Monitor className="w-8 h-8 text-green-400" />
               <div>
-                <p className="text-2xl font-bold">{totalProcesses}</p>
-                <p className="text-sm text-gray-400">Processes</p>
+                <p className="text-2xl font-bold">{runningProcesses}<span className="text-lg text-gray-400">/{totalProcesses}</span></p>
+                <p className="text-sm text-gray-400">Running</p>
+              </div>
+            </div>
+          </div>
+          <div className="bg-gray-800 rounded-lg p-4 border border-gray-700">
+            <div className="flex items-center gap-3">
+              <Wifi className="w-8 h-8 text-cyan-400" />
+              <div>
+                <p className="text-2xl font-bold">{processes.filter(p => p.bms_gateway_status === 'running').length}</p>
+                <p className="text-sm text-gray-400">Gateway Online</p>
               </div>
             </div>
           </div>
@@ -169,7 +197,7 @@ function GitHubPagesDashboard({ onLogout }: GitHubPagesDashboardProps) {
         <div className="bg-blue-900/30 border border-blue-500/50 rounded-lg p-3 mb-4">
           <p className="text-blue-200 text-sm">
             <span className="font-semibold">Read-Only Mode:</span> กำลังดูข้อมูลจาก Supabase โดยตรง
-            ไม่สามารถควบคุม process หรือแก้ไขข้อมูลได้ ใช้ Electron App บน Windows สำหรับควบคุมเต็มรูปแบบ
+            ไม่สามารถควบคุม process หรือแก้ไขข้อมูลได้
           </p>
         </div>
 
@@ -205,6 +233,12 @@ function GitHubPagesDashboard({ onLogout }: GitHubPagesDashboardProps) {
                 <RefreshCw className="w-8 h-8 animate-spin mx-auto mb-2" />
                 <p>กำลังโหลดข้อมูล...</p>
               </div>
+            ) : processes.length === 0 ? (
+              <div className="text-center py-12 text-gray-400">
+                <Monitor className="w-8 h-8 mx-auto mb-2" />
+                <p>ไม่พบข้อมูล process</p>
+                <p className="text-xs mt-2">อาจต้องรัน SQL เพื่อเปิด RLS policy</p>
+              </div>
             ) : (
               groupedProcesses.map((group) => (
                 <div key={group.hospitalCode} className="bg-gray-800 rounded-lg border border-gray-700 overflow-hidden">
@@ -218,21 +252,68 @@ function GitHubPagesDashboard({ onLogout }: GitHubPagesDashboardProps) {
                   </div>
                   <div className="divide-y divide-gray-700">
                     {group.processes.map((proc) => (
-                      <div key={proc.id} className="px-4 py-3 flex items-center justify-between hover:bg-gray-750">
-                        <div className="flex items-center gap-3">
-                          <Monitor className="w-4 h-4 text-gray-400" />
-                          <div>
-                            <p className="font-medium">{proc.process_name}</p>
-                            <p className="text-xs text-gray-400">{proc.hostname}</p>
+                      <div key={proc.id} className="px-4 py-3 hover:bg-gray-750">
+                        <div className="flex items-start justify-between">
+                          <div className="flex items-start gap-3">
+                            {proc.status === 'running' ? (
+                              <CheckCircle className="w-5 h-5 text-green-400 mt-0.5" />
+                            ) : (
+                              <XCircle className="w-5 h-5 text-red-400 mt-0.5" />
+                            )}
+                            <div>
+                              <p className="font-medium">{proc.process_name}</p>
+                              <p className="text-xs text-gray-400">{proc.hostname}</p>
+                              {proc.window_info?.version && (
+                                <p className="text-xs text-gray-500">v{proc.window_info.version}</p>
+                              )}
+                            </div>
+                          </div>
+                          <div className="text-right space-y-1">
+                            <span className={`text-xs px-2 py-0.5 rounded ${
+                              proc.status === 'running' ? 'bg-green-900/50 text-green-300' : 'bg-red-900/50 text-red-300'
+                            }`}>
+                              {proc.status}
+                            </span>
+                            {proc.uptime_seconds && proc.status === 'running' && (
+                              <p className="text-xs text-gray-400">
+                                <Clock className="w-3 h-3 inline mr-1" />
+                                {formatUptime(proc.uptime_seconds)}
+                              </p>
+                            )}
                           </div>
                         </div>
-                        <div className="text-right">
-                          {proc.last_seen && (
-                            <p className="text-xs text-gray-400">
-                              <Clock className="w-3 h-3 inline mr-1" />
-                              {formatTime(proc.last_seen)}
-                            </p>
+
+                        {/* Resource Usage */}
+                        <div className="mt-2 flex flex-wrap gap-3 text-xs">
+                          <span className={`flex items-center gap-1 ${proc.cpu_percent > 80 ? 'text-yellow-400' : 'text-gray-400'}`}>
+                            <Cpu className="w-3 h-3" />
+                            CPU: {proc.cpu_percent?.toFixed(1)}%
+                          </span>
+                          <span className="flex items-center gap-1 text-gray-400">
+                            <HardDrive className="w-3 h-3" />
+                            RAM: {proc.memory_mb?.toFixed(0)} MB
+                          </span>
+                          {proc.bms_hosxp_db_status && (
+                            <span className="flex items-center gap-1">
+                              {getDbStatusIcon(proc.bms_hosxp_db_status)}
+                              <span className={proc.bms_hosxp_db_status === 'connected' ? 'text-green-400' : 'text-red-400'}>
+                                HOSxP
+                              </span>
+                            </span>
                           )}
+                          {proc.bms_gateway_db_status && (
+                            <span className="flex items-center gap-1">
+                              {getDbStatusIcon(proc.bms_gateway_db_status)}
+                              <span className={proc.bms_gateway_db_status === 'connected' ? 'text-green-400' : 'text-red-400'}>
+                                Gateway
+                              </span>
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Last Update */}
+                        <div className="mt-1 text-xs text-gray-500">
+                          อัพเดท: {formatTime(proc.recorded_at)}
                         </div>
                       </div>
                     ))}
