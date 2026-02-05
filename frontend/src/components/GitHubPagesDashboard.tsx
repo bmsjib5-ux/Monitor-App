@@ -345,9 +345,14 @@ function GitHubPagesDashboard({ onLogout }: GitHubPagesDashboardProps) {
                         <div>
                           <p className="font-medium">{alert.process_name}</p>
                           <p className="text-sm text-gray-400">{alert.message}</p>
-                          <p className="text-xs text-gray-500 mt-1">
-                            {alert.hospital_name || alert.hostname}
-                          </p>
+                          <div className="text-xs text-gray-500 mt-1 flex flex-wrap gap-x-2">
+                            {alert.hospital_name && (
+                              <span className="text-blue-400">{alert.hospital_name}</span>
+                            )}
+                            {alert.hostname && (
+                              <span>{alert.hostname}</span>
+                            )}
+                          </div>
                         </div>
                       </div>
                       <div className="text-right">
