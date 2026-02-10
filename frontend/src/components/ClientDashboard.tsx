@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Moon, Sun, Plus, Download, AlertTriangle, RefreshCw, Bell, Trash2, MessageCircle } from 'lucide-react';
+import { Moon, Sun, Plus, Download, AlertTriangle, RefreshCw, Bell, Trash2, MessageCircle, Key } from 'lucide-react';
 import { ProcessInfo, Alert, AlertSettings } from '../types';
 import { api, WebSocketClient } from '../api';
 import ProcessTable from './ProcessTable';
@@ -9,6 +9,7 @@ import AlertPanel from './AlertPanel';
 import EditProcessModal, { RestartSchedule, AutoStartSchedule } from './EditProcessModal';
 import AlertSettingsModal from './AlertSettingsModal';
 import ToastNotification from './ToastNotification';
+import LicenseModal, { getLicenseFromStorage, verifyLicenseKey } from './LicenseModal';
 import { saveProcessMetadata, getStoredMetadata, getAlertSettings } from '../utils/localStorage';
 
 interface ClientDashboardProps {
@@ -50,7 +51,13 @@ const saveReadAlertsToStorage = (readAlerts: Set<string>) => {
 };
 
 function ClientDashboard({ onSwitchToMaster }: ClientDashboardProps) {
-  const [darkMode, setDarkMode] = useState(false);
+  const [darkMode, setDarkMode] = useState(() => {
+    try {
+      return localStorage.getItem('monitorapp_dark_mode') === 'true';
+    } catch {
+      return false;
+    }
+  });
   const [processes, setProcesses] = useState<ProcessInfo[]>([]);
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [selectedProcess, setSelectedProcess] = useState<string | null>(null);
@@ -64,6 +71,10 @@ function ClientDashboard({ onSwitchToMaster }: ClientDashboardProps) {
   const [readAlerts, setReadAlerts] = useState<Set<string>>(() => getReadAlertsFromStorage());
   const [isClearingCache, setIsClearingCache] = useState(false);
   const [isSyncingLineSettings, setIsSyncingLineSettings] = useState(false);
+  // License state
+  const [showLicenseModal, setShowLicenseModal] = useState(false);
+  const [licenseInfo, setLicenseInfo] = useState<{ licenseKey: string; hospitalCode: string; hospitalName: string } | null>(null);
+  const [licenseValid, setLicenseValid] = useState(false);
   // Store Supabase processes separately to preserve them during WebSocket updates
   const supabaseProcessesRef = useRef<ProcessInfo[]>([]);
 
@@ -73,7 +84,29 @@ function ClientDashboard({ onSwitchToMaster }: ClientDashboardProps) {
     } else {
       document.documentElement.classList.remove('dark');
     }
+    try {
+      localStorage.setItem('monitorapp_dark_mode', darkMode.toString());
+    } catch { /* ignore */ }
   }, [darkMode]);
+
+  // Load and verify license on startup
+  useEffect(() => {
+    const checkLicense = async () => {
+      const storedLicense = getLicenseFromStorage();
+      if (storedLicense) {
+        // Verify license is still valid
+        const result = await verifyLicenseKey(storedLicense.licenseKey);
+        if (result.valid) {
+          setLicenseInfo(storedLicense);
+          setLicenseValid(true);
+        } else {
+          // License no longer valid
+          setLicenseValid(false);
+        }
+      }
+    };
+    checkLicense();
+  }, []);
 
   // Merge process data with local storage metadata
   const mergeWithLocalMetadata = (processesData: ProcessInfo[]): ProcessInfo[] => {
@@ -697,7 +730,25 @@ function ClientDashboard({ onSwitchToMaster }: ClientDashboardProps) {
                 </div>
               </div>
               <button
-                onClick={() => setShowAddModal(true)}
+                onClick={() => setShowLicenseModal(true)}
+                className={`p-2 rounded-lg transition-colors ${
+                  licenseValid
+                    ? 'bg-green-100 dark:bg-green-900 hover:bg-green-200 dark:hover:bg-green-800'
+                    : 'bg-yellow-100 dark:bg-yellow-900 hover:bg-yellow-200 dark:hover:bg-yellow-800'
+                }`}
+                title={licenseValid ? `License: ${licenseInfo?.hospitalName || licenseInfo?.hospitalCode}` : 'คลิกเพื่อใส่ License'}
+              >
+                <Key className={`w-5 h-5 ${licenseValid ? 'text-green-600 dark:text-green-400' : 'text-yellow-600 dark:text-yellow-400'}`} />
+              </button>
+              <button
+                onClick={() => {
+                  if (!licenseValid) {
+                    alert('กรุณาใส่ License Key ก่อนเพิ่ม Process');
+                    setShowLicenseModal(true);
+                    return;
+                  }
+                  setShowAddModal(true);
+                }}
                 className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
               >
                 <Plus className="w-5 h-5" />
@@ -753,24 +804,51 @@ function ClientDashboard({ onSwitchToMaster }: ClientDashboardProps) {
         {processes.length === 0 && (
           <div className="text-center py-12">
             <p className="text-gray-500 dark:text-gray-400 mb-4">
-              No processes are being monitored
+              {licenseValid ? 'No processes are being monitored' : 'กรุณาใส่ License Key ก่อนเพิ่ม Process'}
             </p>
-            <button
-              onClick={() => setShowAddModal(true)}
-              className="inline-flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-            >
-              <Plus className="w-5 h-5" />
-              Add Your First Process
-            </button>
+            {!licenseValid ? (
+              <button
+                onClick={() => setShowLicenseModal(true)}
+                className="inline-flex items-center gap-2 px-6 py-3 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 transition-colors"
+              >
+                <Key className="w-5 h-5" />
+                ใส่ License Key
+              </button>
+            ) : (
+              <button
+                onClick={() => setShowAddModal(true)}
+                className="inline-flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+              >
+                <Plus className="w-5 h-5" />
+                Add Your First Process
+              </button>
+            )}
           </div>
         )}
       </main>
 
       {/* Modals */}
+      {showLicenseModal && (
+        <LicenseModal
+          onClose={() => setShowLicenseModal(false)}
+          onLicenseVerified={(hospitalCode, hospitalName) => {
+            setLicenseInfo({
+              licenseKey: getLicenseFromStorage()?.licenseKey || '',
+              hospitalCode,
+              hospitalName,
+            });
+            setLicenseValid(true);
+          }}
+          currentLicense={licenseInfo}
+        />
+      )}
+
       {showAddModal && (
         <AddProcessModal
           onClose={() => setShowAddModal(false)}
           onAdd={handleAddProcess}
+          defaultHospitalCode={licenseInfo?.hospitalCode}
+          defaultHospitalName={licenseInfo?.hospitalName}
         />
       )}
 

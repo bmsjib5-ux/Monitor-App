@@ -35,6 +35,15 @@ from database_wrapper import (Database, save_process_data, save_alert,
 from restart_scheduler import restart_scheduler
 from line_notify import line_notify_service
 from bms_log_monitor import BMSLogMonitor, is_bms_process
+# Optional push notifications (requires pywebpush)
+try:
+    from push_notifications import init_push_service, get_push_service, PushNotificationService
+    PUSH_AVAILABLE = True
+except ImportError:
+    PUSH_AVAILABLE = False
+    init_push_service = None
+    get_push_service = lambda: None
+    PushNotificationService = None
 
 # Thailand timezone (UTC+7)
 THAI_TZ = timezone(timedelta(hours=7))
@@ -419,6 +428,18 @@ async def startup_event():
                 logger.info(f"Loaded metadata for {process_name}: hospital={metadata.get('hospital_name')}")
     except Exception as e:
         logger.warning(f"Could not load process metadata from database: {e}")
+
+    # Initialize Push Notification Service (optional)
+    if PUSH_AVAILABLE and init_push_service:
+        try:
+            if settings.use_supabase:
+                from database_supabase import db as supabase_db
+                push_svc = init_push_service(supabase_db)
+                logger.info("Push notification service initialized")
+        except Exception as e:
+            logger.warning(f"Could not initialize push service: {e}")
+    else:
+        logger.info("Push notifications disabled (pywebpush not installed)")
 
     asyncio.create_task(broadcast_updates())
     logger.info("Application started")
@@ -3103,6 +3124,98 @@ async def clear_cache():
     except Exception as e:
         logger.error(f"Error clearing cache: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
+
+
+# ============================================================
+# Web Push Notification API
+# ============================================================
+
+class PushSubscriptionRequest(BaseModel):
+    endpoint: str
+    p256dh: str
+    auth: str
+    user_agent: Optional[str] = None
+    hospital_code: Optional[str] = None
+
+
+@app.post("/api/push/subscribe")
+async def subscribe_push(subscription: PushSubscriptionRequest):
+    """Subscribe to push notifications"""
+    push_svc = get_push_service()
+    if not push_svc:
+        raise HTTPException(status_code=503, detail="Push service not available")
+
+    try:
+        sub_id = await push_svc.subscribe(
+            endpoint=subscription.endpoint,
+            p256dh=subscription.p256dh,
+            auth=subscription.auth,
+            user_agent=subscription.user_agent,
+            hospital_code=subscription.hospital_code
+        )
+
+        if sub_id:
+            return {"success": True, "subscription_id": sub_id}
+        else:
+            return {"success": False, "message": "Failed to subscribe"}
+
+    except Exception as e:
+        logger.error(f"Push subscribe error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/push/unsubscribe")
+async def unsubscribe_push(data: dict):
+    """Unsubscribe from push notifications"""
+    push_svc = get_push_service()
+    if not push_svc:
+        raise HTTPException(status_code=503, detail="Push service not available")
+
+    endpoint = data.get("endpoint")
+    if not endpoint:
+        raise HTTPException(status_code=400, detail="endpoint is required")
+
+    try:
+        success = await push_svc.unsubscribe(endpoint)
+        return {"success": success}
+    except Exception as e:
+        logger.error(f"Push unsubscribe error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/push/test")
+async def test_push_notification(data: dict):
+    """Send a test push notification"""
+    push_svc = get_push_service()
+    if not push_svc:
+        raise HTTPException(status_code=503, detail="Push service not available")
+
+    try:
+        # Get subscription from request or send to all
+        subscription = data.get("subscription")
+
+        if subscription:
+            # Send to specific subscription
+            success = await push_svc.send_notification(
+                subscription=subscription,
+                title="ทดสอบการแจ้งเตือน",
+                body="Push Notification ทำงานปกติ!",
+                tag="test-notification"
+            )
+            return {"success": success, "sent_to": 1 if success else 0}
+        else:
+            # Send test alert to all subscribers
+            sent = await push_svc.send_alert_notification(
+                alert_type="TEST",
+                process_name="MonitorApp",
+                message="ทดสอบการแจ้งเตือน Push Notification",
+                hospital_name="Test Hospital"
+            )
+            return {"success": sent > 0, "sent_to": sent}
+
+    except Exception as e:
+        logger.error(f"Push test error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # ============================================================

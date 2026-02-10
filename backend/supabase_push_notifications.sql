@@ -27,6 +27,7 @@ ALTER TABLE push_subscriptions ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "Allow anon insert push_subscriptions" ON push_subscriptions;
 DROP POLICY IF EXISTS "Allow anon delete own push_subscriptions" ON push_subscriptions;
+DROP POLICY IF EXISTS "Allow anon select push_subscriptions" ON push_subscriptions;
 DROP POLICY IF EXISTS "Allow service role full access push_subscriptions" ON push_subscriptions;
 
 -- Allow anon to insert (subscribe)
@@ -35,6 +36,13 @@ ON push_subscriptions
 FOR INSERT
 TO anon
 WITH CHECK (true);
+
+-- Allow anon to select active subscriptions (for backend to send notifications)
+CREATE POLICY "Allow anon select push_subscriptions"
+ON push_subscriptions
+FOR SELECT
+TO anon
+USING (is_active = true);
 
 -- Allow anon to delete own subscription (unsubscribe)
 CREATE POLICY "Allow anon delete own push_subscriptions"
@@ -51,7 +59,7 @@ TO service_role
 USING (true)
 WITH CHECK (true);
 
-GRANT INSERT, DELETE ON push_subscriptions TO anon;
+GRANT SELECT, INSERT, DELETE ON push_subscriptions TO anon;
 GRANT USAGE, SELECT ON SEQUENCE push_subscriptions_id_seq TO anon;
 
 -- 4. ตาราง notification_log (เก็บประวัติการส่ง)

@@ -7,8 +7,17 @@ import os
 import json
 import logging
 from typing import Optional, List, Dict, Any
-from pywebpush import webpush, WebPushException
-from database_supabase import SupabaseDB
+
+# Optional import - pywebpush may not be installed
+try:
+    from pywebpush import webpush, WebPushException
+    PYWEBPUSH_AVAILABLE = True
+except ImportError:
+    PYWEBPUSH_AVAILABLE = False
+    webpush = None
+    WebPushException = Exception
+
+from database_supabase import SupabaseDatabase
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +30,7 @@ VAPID_EMAIL = os.getenv('VAPID_EMAIL', 'mailto:admin@monitorapp.com')
 class PushNotificationService:
     """Service for sending Web Push Notifications"""
 
-    def __init__(self, db: SupabaseDB):
+    def __init__(self, db: SupabaseDatabase):
         self.db = db
         self.vapid_claims = {
             "sub": VAPID_EMAIL
@@ -63,6 +72,10 @@ class PushNotificationService:
         Returns:
             True if successful, False otherwise
         """
+        if not PYWEBPUSH_AVAILABLE:
+            logger.warning("pywebpush not installed - push notifications disabled")
+            return False
+
         if not VAPID_PRIVATE_KEY:
             logger.error("VAPID_PRIVATE_KEY not configured")
             return False
@@ -287,7 +300,7 @@ def get_push_service() -> Optional[PushNotificationService]:
     return push_service
 
 
-def init_push_service(db: SupabaseDB) -> PushNotificationService:
+def init_push_service(db: SupabaseDatabase) -> PushNotificationService:
     """Initialize the global push notification service"""
     global push_service
     push_service = PushNotificationService(db)

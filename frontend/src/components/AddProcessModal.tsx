@@ -31,9 +31,11 @@ const saveHospitalInfo = (hospitalCode: string, hospitalName: string) => {
 interface AddProcessModalProps {
   onClose: () => void;
   onAdd: (data: AddProcessData) => void;
+  defaultHospitalCode?: string;
+  defaultHospitalName?: string;
 }
 
-const AddProcessModal = ({ onClose, onAdd }: AddProcessModalProps) => {
+const AddProcessModal = ({ onClose, onAdd, defaultHospitalCode, defaultHospitalName }: AddProcessModalProps) => {
   const [processName, setProcessName] = useState('');
   const [selectedPid, setSelectedPid] = useState<number | undefined>(undefined);
   const [hostname, setHostname] = useState('');
@@ -55,12 +57,18 @@ const AddProcessModal = ({ onClose, onAdd }: AddProcessModalProps) => {
     loadSavedHospitalInfo();
   }, []);
 
-  // Load saved hospital info from localStorage
+  // Load saved hospital info from props or localStorage
   const loadSavedHospitalInfo = () => {
-    const saved = getSavedHospitalInfo();
-    if (saved) {
-      setHospitalCode(saved.hospitalCode);
-      setHospitalName(saved.hospitalName);
+    // Priority: props > localStorage
+    if (defaultHospitalCode) {
+      setHospitalCode(defaultHospitalCode);
+      setHospitalName(defaultHospitalName || '');
+    } else {
+      const saved = getSavedHospitalInfo();
+      if (saved) {
+        setHospitalCode(saved.hospitalCode);
+        setHospitalName(saved.hospitalName);
+      }
     }
   };
 

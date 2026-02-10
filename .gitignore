@@ -54,3 +54,6 @@ installer-output/
 build/
 *.exe
 *.rar
+nul
+backend/Temp/
+frontend/dev-dist/

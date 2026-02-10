@@ -37,7 +37,12 @@
       "Bash(/c/xampp/htdocs/MonitorApp/frontend/release/MonitorApp-Setup-4.0.42.exe //S)",
       "Bash(\"/c/Users/BMS_THANAWAT/AppData/Local/Programs/MonitorApp/resources/python/python.exe\" \"/c/Users/BMS_THANAWAT/AppData/Local/Programs/MonitorApp/resources/backend/run_server.py\")",
       "Bash(kill:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nRelease v4.0.55 - BMS Gateway Monitor & Column Features\n\nFeatures:\n- Add BMS HOSxP LIS Gateway log monitoring \\(GW, DB HOSxP, DB Gateway status\\)\n- Add column resize \\(drag border to resize\\)\n- Add column reorder \\(drag & drop\\)\n- Persist column settings to localStorage\n- Add reset column button\n- Fix DB status logic for correct hosxp/gateway detection\n- Fix gateway restart detection after error\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(gh run list:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(npm run build:gh-pages:*)"
     ],
     "deny": [],
     "ask": []

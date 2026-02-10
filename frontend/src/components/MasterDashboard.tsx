@@ -1,12 +1,14 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { Search, Filter, RefreshCw, Building2, Activity, AlertTriangle, CheckCircle, XCircle, ChevronDown, ChevronUp, Moon, Sun, Monitor, LogOut, Play, Square, Trash2, X, TrendingUp, Clock, Bell, ArrowUpDown, ArrowUp, ArrowDown, MessageSquare, RotateCcw, GripVertical, Info, Shield, BookOpen, Users } from 'lucide-react';
+import { Search, Filter, RefreshCw, Building2, Activity, AlertTriangle, CheckCircle, XCircle, ChevronDown, ChevronUp, Moon, Sun, Monitor, LogOut, Play, Square, Trash2, X, TrendingUp, Clock, Bell, ArrowUpDown, ArrowUp, ArrowDown, MessageSquare, RotateCcw, GripVertical, Info, Shield, BookOpen, Users, Key, WifiOff } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, AreaChart, Area } from 'recharts';
 import { ProcessInfo, Alert } from '../types';
 import { api } from '../api';
+import { getGitHubPagesUser, UserInfo } from '../supabaseClient';
 import ToastNotification from './ToastNotification';
 import AlertPanel from './AlertPanel';
 import LineSettingsModal from './LineSettingsModal';
 import UserManagementModal from './UserManagementModal';
+import LicenseManagementModal from './LicenseManagementModal';
 import BMSStatusIndicator from './BMSStatusIndicator';
 
 interface ProcessHistoryData {
@@ -157,7 +159,17 @@ const getAlertKey = (alert: Alert): string => {
 };
 
 const MasterDashboard = ({ onSwitchToClient, onLogout }: MasterDashboardProps) => {
-  const [darkMode, setDarkMode] = useState(false);
+  // Get current user info for role-based access control
+  const [currentUser, setCurrentUser] = useState<UserInfo | null>(null);
+  const isAdmin = currentUser?.isAdmin ?? true; // Default to admin for backward compatibility (local backend)
+
+  const [darkMode, setDarkMode] = useState(() => {
+    try {
+      return localStorage.getItem('monitorapp_dark_mode') === 'true';
+    } catch {
+      return false;
+    }
+  });
   const [processes, setProcesses] = useState<ProcessInfo[]>([]);
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [readAlerts, setReadAlerts] = useState<Set<string>>(() => getReadAlertsFromStorage());
@@ -188,6 +200,7 @@ const MasterDashboard = ({ onSwitchToClient, onLogout }: MasterDashboardProps) =
   // Settings modals
   const [showLineSettingsModal, setShowLineSettingsModal] = useState(false);
   const [showUserManagementModal, setShowUserManagementModal] = useState(false);
+  const [showLicenseManagementModal, setShowLicenseManagementModal] = useState(false);
   const [showInfoModal, setShowInfoModal] = useState(false);
   const [infoTab, setInfoTab] = useState<'manual' | 'security'>('manual');
 
@@ -353,7 +366,30 @@ const MasterDashboard = ({ onSwitchToClient, onLogout }: MasterDashboardProps) =
     } else {
       document.documentElement.classList.remove('dark');
     }
+    try {
+      localStorage.setItem('monitorapp_dark_mode', darkMode.toString());
+    } catch { /* ignore */ }
   }, [darkMode]);
+
+  // Load current user info on mount
+  useEffect(() => {
+    const user = getGitHubPagesUser();
+    setCurrentUser(user);
+
+    // Also check sessionStorage for masterAuth (backward compatibility with local login)
+    if (!user) {
+      const masterAuth = sessionStorage.getItem('masterAuth');
+      if (masterAuth === 'true') {
+        // Local backend login - treat as admin
+        setCurrentUser({
+          username: 'admin',
+          displayName: 'Admin',
+          role: 'admin',
+          isAdmin: true
+        });
+      }
+    }
+  }, []);
 
   // Load alerts from Supabase
   const loadAlerts = async () => {
@@ -619,6 +655,13 @@ const MasterDashboard = ({ onSwitchToClient, onLogout }: MasterDashboardProps) =
   // Filter processes
   const filteredProcesses = useMemo(() => {
     return processes.filter(p => {
+      // For non-admin users, only show their hospital's data
+      if (!isAdmin && currentUser?.hospitalCode) {
+        if (p.hospital_code !== currentUser.hospitalCode) {
+          return false;
+        }
+      }
+
       if (searchTerm) {
         const search = searchTerm.toLowerCase();
         const matchName = p.name.toLowerCase().includes(search);
@@ -643,7 +686,7 @@ const MasterDashboard = ({ onSwitchToClient, onLogout }: MasterDashboardProps) =
 
       return true;
     });
-  }, [processes, searchTerm, filterHospital, filterStatus, filterProgram]);
+  }, [processes, searchTerm, filterHospital, filterStatus, filterProgram, isAdmin, currentUser]);
 
   // Handle sort click
   const handleSort = (field: SortField) => {
@@ -785,16 +828,52 @@ const MasterDashboard = ({ onSwitchToClient, onLogout }: MasterDashboardProps) =
     );
   }, [filteredProcesses]);
 
+  // Offline detection: check if recorded_at is older than threshold
+  const OFFLINE_THRESHOLD_MS = 30 * 1000; // 30 seconds - detect offline quickly
+
+  const isProcessOffline = useCallback((recordedAt?: string): boolean => {
+    if (!recordedAt) return false; // No data = can't determine, show as normal
+    return (Date.now() - new Date(recordedAt).getTime()) > OFFLINE_THRESHOLD_MS;
+  }, []);
+
+  const getOfflineDuration = useCallback((recordedAt?: string): string => {
+    if (!recordedAt) return '0 วินาที';
+    const diffMs = Date.now() - new Date(recordedAt).getTime();
+    const diffSec = Math.floor(diffMs / 1000);
+    if (diffSec < 60) return `${diffSec} วินาที`;
+    const diffMin = Math.floor(diffSec / 60);
+    if (diffMin < 60) return `${diffMin} นาที`;
+    const diffHour = Math.floor(diffMin / 60);
+    return `${diffHour} ชม. ${diffMin % 60} นาที`;
+  }, []);
+
+  const isHospitalGroupOffline = useCallback((procs: ProcessInfo[]): boolean => {
+    return procs.length > 0 && procs.every(p => isProcessOffline(p.recorded_at));
+  }, [isProcessOffline]);
+
   // Statistics
   const stats = useMemo(() => {
-    const running = filteredProcesses.filter(p => p.status === 'running').length;
-    const stopped = filteredProcesses.filter(p => p.status !== 'running').length;
+    // Offline processes count as stopped (not running)
+    const running = filteredProcesses.filter(p => p.status === 'running' && !isProcessOffline(p.recorded_at)).length;
+    const stopped = filteredProcesses.filter(p => p.status !== 'running' || isProcessOffline(p.recorded_at)).length;
     const totalCpu = filteredProcesses.reduce((sum, p) => sum + p.cpu_percent, 0);
     const totalMemory = filteredProcesses.reduce((sum, p) => sum + p.memory_mb, 0);
     const hospitalCount = new Set(filteredProcesses.map(p => p.hospital_code).filter(Boolean)).size;
 
-    return { running, stopped, totalCpu, totalMemory, hospitalCount };
-  }, [filteredProcesses]);
+    // Count offline hospitals
+    const hospitalMap = new Map<string, ProcessInfo[]>();
+    filteredProcesses.forEach(p => {
+      const code = p.hospital_code || 'unknown';
+      if (!hospitalMap.has(code)) hospitalMap.set(code, []);
+      hospitalMap.get(code)!.push(p);
+    });
+    let offlineCount = 0;
+    hospitalMap.forEach((procs) => {
+      if (procs.every(p => isProcessOffline(p.recorded_at))) offlineCount++;
+    });
+
+    return { running, stopped, totalCpu, totalMemory, hospitalCount, offlineCount };
+  }, [filteredProcesses, isProcessOffline]);
 
   const toggleHospital = (code: string) => {
     const newExpanded = new Set(expandedHospitals);
@@ -933,10 +1012,17 @@ const MasterDashboard = ({ onSwitchToClient, onLogout }: MasterDashboardProps) =
       case 'status':
         return (
           <td key={columnKey} style={{ width: columnWidths[columnKey] }} className="px-4 py-3">
-            <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(process.status)}`}>
-              {getStatusIcon(process.status)}
-              {process.status === 'running' ? 'ทำงาน' : 'หยุด'}
-            </span>
+            {isProcessOffline(process.recorded_at) ? (
+              <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400">
+                <WifiOff className="w-3 h-3" />
+                ออฟไลน์
+              </span>
+            ) : (
+              <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(process.status)}`}>
+                {getStatusIcon(process.status)}
+                {process.status === 'running' ? 'ทำงาน' : 'หยุด'}
+              </span>
+            )}
           </td>
         );
       case 'gw_status':
@@ -1036,13 +1122,15 @@ const MasterDashboard = ({ onSwitchToClient, onLogout }: MasterDashboardProps) =
                   <Play className="w-4 h-4" />
                 </button>
               )}
-              <button
-                onClick={() => handleDeleteProcess(process.name, process.pid, process.hospital_code || undefined)}
-                className="p-1.5 rounded-lg bg-red-100 hover:bg-red-200 dark:bg-red-900/30 dark:hover:bg-red-900/50 text-red-600 dark:text-red-400 transition-colors"
-                title="ลบออกจากรายการ"
-              >
-                <Trash2 className="w-4 h-4" />
-              </button>
+              {isAdmin && (
+                <button
+                  onClick={() => handleDeleteProcess(process.name, process.pid, process.hospital_code || undefined)}
+                  className="p-1.5 rounded-lg bg-red-100 hover:bg-red-200 dark:bg-red-900/30 dark:hover:bg-red-900/50 text-red-600 dark:text-red-400 transition-colors"
+                  title="ลบออกจากรายการ"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              )}
             </div>
           </td>
         );
@@ -1062,34 +1150,41 @@ const MasterDashboard = ({ onSwitchToClient, onLogout }: MasterDashboardProps) =
               <div>
                 <div className="flex items-center gap-3">
                   <h1 className="text-2xl font-bold text-white">
-                    Admin Monitor Dashboard
+                    {isAdmin ? 'Admin Monitor Dashboard' : 'Monitor Dashboard'}
                   </h1>
                   <span className="px-3 py-1 bg-white/20 text-white text-sm font-medium rounded-full">
-                    Master Mode
+                    {isAdmin ? 'Master Mode' : 'View Only'}
                   </span>
                   <span className="px-2 py-0.5 bg-white/30 text-white text-xs font-mono rounded">
-                    v4.0.60
+                    v4.0.73
                   </span>
                 </div>
                 <p className="text-sm text-purple-100">
-                  ภาพรวมการทำงานของทุกสถานพยาบาล
+                  {isAdmin
+                    ? 'ภาพรวมการทำงานของทุกสถานพยาบาล'
+                    : currentUser?.hospitalName
+                      ? `${currentUser.hospitalCode} - ${currentUser.hospitalName}`
+                      : `รหัสสถานพยาบาล: ${currentUser?.hospitalCode || '-'}`
+                  }
                 </p>
               </div>
             </div>
             <div className="flex items-center gap-2">
-              {/* Alert Button */}
-              <button
-                onClick={() => setShowAlertPanel(true)}
-                className="relative p-2 rounded-lg bg-white/20 hover:bg-white/30 transition-colors"
-                title="ดูการแจ้งเตือน"
-              >
-                <Bell className="w-5 h-5 text-white" />
-                {unreadAlertsCount > 0 && (
-                  <span className="absolute -top-1 -right-1 flex items-center justify-center w-5 h-5 text-xs font-bold text-white bg-red-500 rounded-full animate-pulse">
-                    {unreadAlertsCount > 99 ? '99+' : unreadAlertsCount}
-                  </span>
-                )}
-              </button>
+              {/* Alert Button - Admin only */}
+              {isAdmin && (
+                <button
+                  onClick={() => setShowAlertPanel(true)}
+                  className="relative p-2 rounded-lg bg-white/20 hover:bg-white/30 transition-colors"
+                  title="ดูการแจ้งเตือน"
+                >
+                  <Bell className="w-5 h-5 text-white" />
+                  {unreadAlertsCount > 0 && (
+                    <span className="absolute -top-1 -right-1 flex items-center justify-center w-5 h-5 text-xs font-bold text-white bg-red-500 rounded-full animate-pulse">
+                      {unreadAlertsCount > 99 ? '99+' : unreadAlertsCount}
+                    </span>
+                  )}
+                </button>
+              )}
               {/* Information Button */}
               <button
                 onClick={() => setShowInfoModal(true)}
@@ -1098,22 +1193,35 @@ const MasterDashboard = ({ onSwitchToClient, onLogout }: MasterDashboardProps) =
               >
                 <Info className="w-5 h-5 text-white" />
               </button>
-              {/* User Management Button */}
-              <button
-                onClick={() => setShowUserManagementModal(true)}
-                className="p-2 rounded-lg bg-blue-500/80 hover:bg-blue-600 transition-colors"
-                title="จัดการผู้ใช้โรงพยาบาล"
-              >
-                <Users className="w-5 h-5 text-white" />
-              </button>
-              {/* LINE OA Settings Button */}
-              <button
-                onClick={() => setShowLineSettingsModal(true)}
-                className="p-2 rounded-lg bg-green-500/80 hover:bg-green-600 transition-colors"
-                title="ตั้งค่า LINE OA"
-              >
-                <MessageSquare className="w-5 h-5 text-white" />
-              </button>
+              {/* Admin-only buttons */}
+              {isAdmin && (
+                <>
+                  {/* User Management Button */}
+                  <button
+                    onClick={() => setShowUserManagementModal(true)}
+                    className="p-2 rounded-lg bg-blue-500/80 hover:bg-blue-600 transition-colors"
+                    title="จัดการผู้ใช้โรงพยาบาล"
+                  >
+                    <Users className="w-5 h-5 text-white" />
+                  </button>
+                  {/* License Management Button */}
+                  <button
+                    onClick={() => setShowLicenseManagementModal(true)}
+                    className="p-2 rounded-lg bg-purple-500/80 hover:bg-purple-600 transition-colors"
+                    title="จัดการ License"
+                  >
+                    <Key className="w-5 h-5 text-white" />
+                  </button>
+                  {/* LINE OA Settings Button */}
+                  <button
+                    onClick={() => setShowLineSettingsModal(true)}
+                    className="p-2 rounded-lg bg-green-500/80 hover:bg-green-600 transition-colors"
+                    title="ตั้งค่า LINE OA"
+                  >
+                    <MessageSquare className="w-5 h-5 text-white" />
+                  </button>
+                </>
+              )}
               <button
                 onClick={handleRefresh}
                 disabled={refreshing}
@@ -1129,17 +1237,20 @@ const MasterDashboard = ({ onSwitchToClient, onLogout }: MasterDashboardProps) =
               >
                 <Monitor className="w-5 h-5 text-white" />
               </button>
-              <button
-                onClick={() => setDarkMode(!darkMode)}
-                className="p-2 rounded-lg bg-white/20 hover:bg-white/30 transition-colors"
-                title={darkMode ? 'Light Mode' : 'Dark Mode'}
-              >
-                {darkMode ? (
-                  <Sun className="w-5 h-5 text-yellow-300" />
-                ) : (
-                  <Moon className="w-5 h-5 text-white" />
-                )}
-              </button>
+              {/* Dark Mode - Admin only */}
+              {isAdmin && (
+                <button
+                  onClick={() => setDarkMode(!darkMode)}
+                  className="p-2 rounded-lg bg-white/20 hover:bg-white/30 transition-colors"
+                  title={darkMode ? 'Light Mode' : 'Dark Mode'}
+                >
+                  {darkMode ? (
+                    <Sun className="w-5 h-5 text-yellow-300" />
+                  ) : (
+                    <Moon className="w-5 h-5 text-white" />
+                  )}
+                </button>
+              )}
               <button
                 onClick={onLogout}
                 className="flex items-center gap-2 px-3 py-2 rounded-lg bg-red-500/80 hover:bg-red-600 transition-colors"
@@ -1156,7 +1267,7 @@ const MasterDashboard = ({ onSwitchToClient, onLogout }: MasterDashboardProps) =
       {/* Statistics Bar */}
       <div className="bg-white dark:bg-gray-800 shadow">
         <div className="max-w-full mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <div className="grid grid-cols-5 gap-4">
+          <div className="grid grid-cols-6 gap-4">
             <div className="text-center">
               <div className="flex items-center justify-center gap-2 mb-1">
                 <Building2 className="w-5 h-5 text-purple-500" />
@@ -1184,6 +1295,13 @@ const MasterDashboard = ({ onSwitchToClient, onLogout }: MasterDashboardProps) =
                 <span className="text-sm text-gray-500 dark:text-gray-400">หยุดทำงาน</span>
               </div>
               <p className="text-3xl font-bold text-red-600 dark:text-red-400">{stats.stopped}</p>
+            </div>
+            <div className="text-center">
+              <div className="flex items-center justify-center gap-2 mb-1">
+                <WifiOff className={`w-5 h-5 ${stats.offlineCount > 0 ? 'text-red-500' : 'text-gray-400'}`} />
+                <span className="text-sm text-gray-500 dark:text-gray-400">ออฟไลน์</span>
+              </div>
+              <p className={`text-3xl font-bold ${stats.offlineCount > 0 ? 'text-red-600 dark:text-red-400' : 'text-gray-900 dark:text-white'}`}>{stats.offlineCount}</p>
             </div>
             <div className="text-center">
               <div className="flex items-center justify-center gap-2 mb-1">
@@ -1317,7 +1435,7 @@ const MasterDashboard = ({ onSwitchToClient, onLogout }: MasterDashboardProps) =
               </thead>
               <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
                 {sortedProcesses.map((process, idx) => (
-                  <tr key={`${process.name}-${process.pid}-${idx}`} className="hover:bg-gray-50 dark:hover:bg-gray-700">
+                  <tr key={`${process.name}-${process.pid}-${idx}`} className={`hover:bg-gray-50 dark:hover:bg-gray-700 ${isProcessOffline(process.recorded_at) ? 'opacity-50 bg-gray-50 dark:bg-gray-800/50' : ''}`}>
                     {columnOrder.map(columnKey => renderColumnCell(columnKey, process))}
                   </tr>
                 ))}
@@ -1333,19 +1451,33 @@ const MasterDashboard = ({ onSwitchToClient, onLogout }: MasterDashboardProps) =
           /* Cards View - Grouped by Hospital */
           <div className="space-y-4">
             {hospitalGroups.map(group => (
-              <div key={group.hospitalCode} className="bg-white dark:bg-gray-800 rounded-lg shadow overflow-hidden">
+              <div key={group.hospitalCode} className={`bg-white dark:bg-gray-800 rounded-lg shadow overflow-hidden ${isHospitalGroupOffline(group.processes) ? 'ring-2 ring-red-400/50' : ''}`}>
                 {/* Hospital Header */}
                 <button
                   onClick={() => toggleHospital(group.hospitalCode)}
-                  className="w-full px-4 py-3 flex items-center justify-between bg-gradient-to-r from-purple-50 to-indigo-50 dark:from-purple-900/30 dark:to-indigo-900/30 hover:from-purple-100 hover:to-indigo-100 dark:hover:from-purple-900/50 dark:hover:to-indigo-900/50 transition-colors"
+                  className={`w-full px-4 py-3 flex items-center justify-between transition-colors ${
+                    isHospitalGroupOffline(group.processes)
+                      ? 'bg-gradient-to-r from-red-50 to-red-100 dark:from-red-900/30 dark:to-red-900/20 hover:from-red-100 hover:to-red-200 dark:hover:from-red-900/50 dark:hover:to-red-900/40'
+                      : 'bg-gradient-to-r from-purple-50 to-indigo-50 dark:from-purple-900/30 dark:to-indigo-900/30 hover:from-purple-100 hover:to-indigo-100 dark:hover:from-purple-900/50 dark:hover:to-indigo-900/50'
+                  }`}
                 >
                   <div className="flex items-center gap-3">
-                    <Building2 className="w-5 h-5 text-purple-600 dark:text-purple-400" />
+                    {isHospitalGroupOffline(group.processes) ? (
+                      <WifiOff className="w-5 h-5 text-red-500" />
+                    ) : (
+                      <Building2 className="w-5 h-5 text-purple-600 dark:text-purple-400" />
+                    )}
                     <div className="text-left">
                       <div className="flex items-center gap-2">
-                        <p className="font-semibold text-gray-900 dark:text-white">
+                        <p className={`font-semibold ${isHospitalGroupOffline(group.processes) ? 'text-red-700 dark:text-red-400' : 'text-gray-900 dark:text-white'}`}>
                           {group.hospitalCode !== 'unknown' ? `[${group.hospitalCode}] ` : ''}{group.hospitalName}
                         </p>
+                        {isHospitalGroupOffline(group.processes) && (
+                          <span className="flex items-center gap-1 px-2 py-0.5 bg-red-100 dark:bg-red-900/50 text-red-600 dark:text-red-400 text-xs rounded-full animate-pulse">
+                            <WifiOff className="w-3 h-3" />
+                            ออฟไลน์ {getOfflineDuration(group.processes[0]?.recorded_at)}
+                          </span>
+                        )}
                         {group.programVersion && (
                           <span className="px-1.5 py-0.5 bg-green-100 dark:bg-green-900/50 text-green-700 dark:text-green-300 text-xs font-mono rounded" title="BMS Program Version">
                             v{group.programVersion}
@@ -1388,16 +1520,18 @@ const MasterDashboard = ({ onSwitchToClient, onLogout }: MasterDashboardProps) =
                       <div
                         key={`${process.name}-${process.pid}-${idx}`}
                         className={`p-3 rounded-lg border cursor-pointer hover:shadow-md transition-shadow ${
-                          process.status === 'running'
-                            ? 'border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-900/20 hover:border-green-400'
-                            : 'border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20 hover:border-red-400'
+                          isProcessOffline(process.recorded_at)
+                            ? 'border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-800/50 opacity-60'
+                            : process.status === 'running'
+                              ? 'border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-900/20 hover:border-green-400'
+                              : 'border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20 hover:border-red-400'
                         }`}
                         onClick={() => handleProcessClick(process)}
                       >
                         <div className="flex items-center justify-between mb-2">
                           <div className="flex flex-col min-w-0">
                             <span
-                              className="font-medium text-gray-900 dark:text-white truncate flex items-center gap-1"
+                              className={`font-medium truncate flex items-center gap-1 ${isProcessOffline(process.recorded_at) ? 'text-gray-500 dark:text-gray-500' : 'text-gray-900 dark:text-white'}`}
                               title={process.window_info?.window_title || process.name}
                             >
                               {process.window_info?.window_title || process.name}
@@ -1409,10 +1543,17 @@ const MasterDashboard = ({ onSwitchToClient, onLogout }: MasterDashboardProps) =
                               </span>
                             )}
                           </div>
-                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${getStatusColor(process.status)}`}>
-                            {getStatusIcon(process.status)}
-                            {process.status === 'running' ? 'ทำงาน' : 'หยุด'}
-                          </span>
+                          {isProcessOffline(process.recorded_at) ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400">
+                              <WifiOff className="w-3 h-3" />
+                              ออฟไลน์
+                            </span>
+                          ) : (
+                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${getStatusColor(process.status)}`}>
+                              {getStatusIcon(process.status)}
+                              {process.status === 'running' ? 'ทำงาน' : 'หยุด'}
+                            </span>
+                          )}
                         </div>
                         <div className="text-sm text-gray-600 dark:text-gray-400 space-y-1">
                           <div className="flex justify-between">
@@ -1479,14 +1620,16 @@ const MasterDashboard = ({ onSwitchToClient, onLogout }: MasterDashboardProps) =
                               Start
                             </button>
                           )}
-                          <button
-                            onClick={(e) => { e.stopPropagation(); handleDeleteProcess(process.name, process.pid, process.hospital_code || undefined); }}
-                            className="flex items-center gap-1 px-2 py-1 rounded bg-red-100 hover:bg-red-200 dark:bg-red-900/30 dark:hover:bg-red-900/50 text-red-600 dark:text-red-400 text-xs font-medium transition-colors"
-                            title="ลบออกจากรายการ"
-                          >
-                            <Trash2 className="w-3 h-3" />
-                            Delete
-                          </button>
+                          {isAdmin && (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); handleDeleteProcess(process.name, process.pid, process.hospital_code || undefined); }}
+                              className="flex items-center gap-1 px-2 py-1 rounded bg-red-100 hover:bg-red-200 dark:bg-red-900/30 dark:hover:bg-red-900/50 text-red-600 dark:text-red-400 text-xs font-medium transition-colors"
+                              title="ลบออกจากรายการ"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                              Delete
+                            </button>
+                          )}
                         </div>
                       </div>
                     ))}
@@ -1537,6 +1680,13 @@ const MasterDashboard = ({ onSwitchToClient, onLogout }: MasterDashboardProps) =
         <UserManagementModal
           isOpen={showUserManagementModal}
           onClose={() => setShowUserManagementModal(false)}
+        />
+      )}
+
+      {/* License Management Modal */}
+      {showLicenseManagementModal && (
+        <LicenseManagementModal
+          onClose={() => setShowLicenseManagementModal(false)}
         />
       )}
 

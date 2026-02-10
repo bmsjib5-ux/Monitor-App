@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { RefreshCw, Activity, AlertTriangle, CheckCircle, XCircle, Clock, Building2, Monitor, LogOut, Cpu, HardDrive, Database, Wifi, ArrowUpDown, Shield } from 'lucide-react';
+import { RefreshCw, Activity, CheckCircle, XCircle, Clock, Building2, Monitor, LogOut, Cpu, HardDrive, Database, Wifi, ArrowUpDown, Shield, WifiOff } from 'lucide-react';
 import { supabaseApi, ProcessHistory, AlertRecord, getGitHubPagesUser, UserInfo } from '../supabaseClient';
 import PushNotificationToggle from './PushNotificationToggle';
 
@@ -109,15 +109,49 @@ function GitHubPagesDashboard({ onLogout }: GitHubPagesDashboardProps) {
     groupedProcesses.sort((a, b) => a.hospitalName.localeCompare(b.hospitalName, 'th'));
   }
 
-  // Count stats (use filtered data)
+  // Offline detection: check if recorded_at is older than threshold
+  const OFFLINE_THRESHOLD_MS = 30 * 1000; // 30 seconds - detect offline quickly
+
+  const isProcessOffline = (recordedAt: string | null): boolean => {
+    if (!recordedAt) return true;
+    return (Date.now() - new Date(recordedAt).getTime()) > OFFLINE_THRESHOLD_MS;
+  };
+
+  const getOfflineDuration = (recordedAt: string | null): string => {
+    if (!recordedAt) return 'ไม่ทราบ';
+    const diffMs = Date.now() - new Date(recordedAt).getTime();
+    const diffSec = Math.floor(diffMs / 1000);
+    if (diffSec < 60) return `${diffSec} วินาที`;
+    const diffMin = Math.floor(diffSec / 60);
+    if (diffMin < 60) return `${diffMin} นาที`;
+    const diffHour = Math.floor(diffMin / 60);
+    return `${diffHour} ชม. ${diffMin % 60} นาที`;
+  };
+
+  // Check if entire hospital group is offline (all processes stale)
+  const isHospitalOffline = (procs: ProcessHistory[]): boolean => {
+    return procs.every(p => isProcessOffline(p.recorded_at));
+  };
+
+  // Count stats (offline = stopped)
   const totalHospitals = new Set(filteredProcesses.map(p => p.hospital_code).filter(Boolean)).size;
   const totalProcesses = filteredProcesses.length;
-  const runningProcesses = filteredProcesses.filter(p => p.status === 'running').length;
-  const recentAlerts = filteredAlerts.filter(a => {
-    const alertTime = new Date(a.created_at);
-    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
-    return alertTime > oneHourAgo;
-  }).length;
+  const runningProcesses = filteredProcesses.filter(p => p.status === 'running' && !isProcessOffline(p.recorded_at)).length;
+
+  // Count offline hospitals
+  const offlineHospitals = useMemo(() => {
+    const hospitalMap = new Map<string, ProcessHistory[]>();
+    filteredProcesses.forEach(p => {
+      const code = p.hospital_code || 'unknown';
+      if (!hospitalMap.has(code)) hospitalMap.set(code, []);
+      hospitalMap.get(code)!.push(p);
+    });
+    let count = 0;
+    hospitalMap.forEach((procs) => {
+      if (isHospitalOffline(procs)) count++;
+    });
+    return count;
+  }, [filteredProcesses]);
 
   const formatTime = (dateStr: string | null) => {
     if (!dateStr) return '-';
@@ -231,10 +265,10 @@ function GitHubPagesDashboard({ onLogout }: GitHubPagesDashboardProps) {
           </div>
           <div className="bg-gray-800 rounded-lg p-4 border border-gray-700">
             <div className="flex items-center gap-3">
-              <AlertTriangle className="w-8 h-8 text-yellow-400" />
+              <WifiOff className={`w-8 h-8 ${offlineHospitals > 0 ? 'text-red-400' : 'text-gray-600'}`} />
               <div>
-                <p className="text-2xl font-bold">{recentAlerts}</p>
-                <p className="text-sm text-gray-400">Alerts (1 ชม.)</p>
+                <p className={`text-2xl font-bold ${offlineHospitals > 0 ? 'text-red-400' : ''}`}>{offlineHospitals}</p>
+                <p className="text-sm text-gray-400">Offline</p>
               </div>
             </div>
           </div>
@@ -326,27 +360,35 @@ function GitHubPagesDashboard({ onLogout }: GitHubPagesDashboardProps) {
               </div>
             ) : (
               groupedProcesses.map((group) => (
-                <div key={group.hospitalCode} className="bg-gray-800 rounded-lg border border-gray-700 overflow-hidden">
-                  <div className="bg-gray-750 px-4 py-3 border-b border-gray-700 flex items-center justify-between">
+                <div key={group.hospitalCode} className={`bg-gray-800 rounded-lg border overflow-hidden ${isHospitalOffline(group.processes) ? 'border-red-500/50' : 'border-gray-700'}`}>
+                  <div className={`px-4 py-3 border-b flex items-center justify-between ${isHospitalOffline(group.processes) ? 'bg-red-900/20 border-red-500/30' : 'bg-gray-750 border-gray-700'}`}>
                     <div className="flex items-center gap-2">
-                      <Building2 className="w-5 h-5 text-blue-400" />
+                      <Building2 className={`w-5 h-5 ${isHospitalOffline(group.processes) ? 'text-red-400' : 'text-blue-400'}`} />
                       <span className="font-semibold">{group.hospitalName}</span>
                       <span className="text-xs text-gray-400">({group.hospitalCode})</span>
+                      {isHospitalOffline(group.processes) && (
+                        <span className="flex items-center gap-1 px-2 py-0.5 bg-red-900/50 text-red-300 text-xs rounded-full animate-pulse">
+                          <WifiOff className="w-3 h-3" />
+                          ออฟไลน์ {getOfflineDuration(group.processes[0]?.recorded_at)}
+                        </span>
+                      )}
                     </div>
                     <span className="text-sm text-gray-400">{group.processes.length} processes</span>
                   </div>
                   <div className="divide-y divide-gray-700">
                     {group.processes.map((proc) => (
-                      <div key={proc.id} className="px-4 py-3 hover:bg-gray-750">
+                      <div key={proc.id} className={`px-4 py-3 hover:bg-gray-750 ${isProcessOffline(proc.recorded_at) ? 'opacity-60' : ''}`}>
                         <div className="flex items-start justify-between">
                           <div className="flex items-start gap-3">
-                            {proc.status === 'running' ? (
+                            {isProcessOffline(proc.recorded_at) ? (
+                              <WifiOff className="w-5 h-5 text-gray-500 mt-0.5" />
+                            ) : proc.status === 'running' ? (
                               <CheckCircle className="w-5 h-5 text-green-400 mt-0.5" />
                             ) : (
                               <XCircle className="w-5 h-5 text-red-400 mt-0.5" />
                             )}
                             <div>
-                              <p className="font-medium">{proc.process_name}</p>
+                              <p className={`font-medium ${isProcessOffline(proc.recorded_at) ? 'text-gray-500' : ''}`}>{proc.process_name}</p>
                               <p className="text-xs text-gray-400">{proc.hostname}</p>
                               {proc.window_info?.version && (
                                 <p className="text-xs text-gray-500">v{proc.window_info.version}</p>
@@ -354,11 +396,17 @@ function GitHubPagesDashboard({ onLogout }: GitHubPagesDashboardProps) {
                             </div>
                           </div>
                           <div className="text-right space-y-1">
-                            <span className={`text-xs px-2 py-0.5 rounded ${
-                              proc.status === 'running' ? 'bg-green-900/50 text-green-300' : 'bg-red-900/50 text-red-300'
-                            }`}>
-                              {proc.status}
-                            </span>
+                            {isProcessOffline(proc.recorded_at) ? (
+                              <span className="text-xs px-2 py-0.5 rounded bg-gray-700 text-gray-400">
+                                offline ({getOfflineDuration(proc.recorded_at)})
+                              </span>
+                            ) : (
+                              <span className={`text-xs px-2 py-0.5 rounded ${
+                                proc.status === 'running' ? 'bg-green-900/50 text-green-300' : 'bg-red-900/50 text-red-300'
+                              }`}>
+                                {proc.status}
+                              </span>
+                            )}
                             {proc.uptime_seconds && proc.status === 'running' && (
                               <p className="text-xs text-gray-400">
                                 <Clock className="w-3 h-3 inline mr-1" />
