@@ -652,6 +652,14 @@ const MasterDashboard = ({ onSwitchToClient, onLogout }: MasterDashboardProps) =
     return [...new Set(processes.map(p => p.name))];
   }, [processes]);
 
+  // Offline detection: check if recorded_at is older than threshold
+  const OFFLINE_THRESHOLD_MS = 30 * 1000; // 30 seconds - detect offline quickly
+
+  const isProcessOffline = useCallback((recordedAt?: string): boolean => {
+    if (!recordedAt) return false; // No data = can't determine, show as normal
+    return (Date.now() - new Date(recordedAt).getTime()) > OFFLINE_THRESHOLD_MS;
+  }, []);
+
   // Filter processes
   const filteredProcesses = useMemo(() => {
     return processes.filter(p => {
@@ -675,9 +683,14 @@ const MasterDashboard = ({ onSwitchToClient, onLogout }: MasterDashboardProps) =
       }
 
       if (filterStatus !== 'all') {
-        const isRunning = p.status === 'running';
-        if (filterStatus === 'running' && !isRunning) return false;
-        if (filterStatus === 'stopped' && isRunning) return false;
+        const offline = isProcessOffline(p.recorded_at);
+        if (filterStatus === 'offline') {
+          if (!offline) return false;
+        } else if (filterStatus === 'running') {
+          if (p.status !== 'running' || offline) return false;
+        } else if (filterStatus === 'stopped') {
+          if (p.status === 'running' && !offline) return false;
+        }
       }
 
       if (filterProgram !== 'all' && p.name !== filterProgram) {
@@ -686,7 +699,7 @@ const MasterDashboard = ({ onSwitchToClient, onLogout }: MasterDashboardProps) =
 
       return true;
     });
-  }, [processes, searchTerm, filterHospital, filterStatus, filterProgram, isAdmin, currentUser]);
+  }, [processes, searchTerm, filterHospital, filterStatus, filterProgram, isAdmin, currentUser, isProcessOffline]);
 
   // Handle sort click
   const handleSort = (field: SortField) => {
@@ -827,14 +840,6 @@ const MasterDashboard = ({ onSwitchToClient, onLogout }: MasterDashboardProps) =
       a.hospitalCode.localeCompare(b.hospitalCode)
     );
   }, [filteredProcesses]);
-
-  // Offline detection: check if recorded_at is older than threshold
-  const OFFLINE_THRESHOLD_MS = 30 * 1000; // 30 seconds - detect offline quickly
-
-  const isProcessOffline = useCallback((recordedAt?: string): boolean => {
-    if (!recordedAt) return false; // No data = can't determine, show as normal
-    return (Date.now() - new Date(recordedAt).getTime()) > OFFLINE_THRESHOLD_MS;
-  }, []);
 
   const getOfflineDuration = useCallback((recordedAt?: string): string => {
     if (!recordedAt) return '0 วินาที';
@@ -1013,7 +1018,7 @@ const MasterDashboard = ({ onSwitchToClient, onLogout }: MasterDashboardProps) =
         return (
           <td key={columnKey} style={{ width: columnWidths[columnKey] }} className="px-4 py-3">
             {isProcessOffline(process.recorded_at) ? (
-              <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400">
+              <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-red-100 dark:bg-red-900/50 text-red-600 dark:text-red-400 animate-pulse">
                 <WifiOff className="w-3 h-3" />
                 ออฟไลน์
               </span>
@@ -1156,7 +1161,7 @@ const MasterDashboard = ({ onSwitchToClient, onLogout }: MasterDashboardProps) =
                     {isAdmin ? 'Master Mode' : 'View Only'}
                   </span>
                   <span className="px-2 py-0.5 bg-white/30 text-white text-xs font-mono rounded">
-                    v4.0.73
+                    v4.1.0
                   </span>
                 </div>
                 <p className="text-sm text-purple-100">
@@ -1354,6 +1359,7 @@ const MasterDashboard = ({ onSwitchToClient, onLogout }: MasterDashboardProps) =
               <option value="all">ทุกสถานะ</option>
               <option value="running">กำลังทำงาน</option>
               <option value="stopped">หยุดทำงาน</option>
+              <option value="offline">ออฟไลน์</option>
             </select>
 
             {/* Program Filter */}
@@ -1435,7 +1441,7 @@ const MasterDashboard = ({ onSwitchToClient, onLogout }: MasterDashboardProps) =
               </thead>
               <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
                 {sortedProcesses.map((process, idx) => (
-                  <tr key={`${process.name}-${process.pid}-${idx}`} className={`hover:bg-gray-50 dark:hover:bg-gray-700 ${isProcessOffline(process.recorded_at) ? 'opacity-50 bg-gray-50 dark:bg-gray-800/50' : ''}`}>
+                  <tr key={`${process.name}-${process.pid}-${idx}`} className={`hover:bg-gray-50 dark:hover:bg-gray-700 ${isProcessOffline(process.recorded_at) ? 'bg-red-50/50 dark:bg-red-900/10' : ''}`}>
                     {columnOrder.map(columnKey => renderColumnCell(columnKey, process))}
                   </tr>
                 ))}
@@ -1521,7 +1527,7 @@ const MasterDashboard = ({ onSwitchToClient, onLogout }: MasterDashboardProps) =
                         key={`${process.name}-${process.pid}-${idx}`}
                         className={`p-3 rounded-lg border cursor-pointer hover:shadow-md transition-shadow ${
                           isProcessOffline(process.recorded_at)
-                            ? 'border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-800/50 opacity-60'
+                            ? 'border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-900/20'
                             : process.status === 'running'
                               ? 'border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-900/20 hover:border-green-400'
                               : 'border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20 hover:border-red-400'
@@ -1531,7 +1537,7 @@ const MasterDashboard = ({ onSwitchToClient, onLogout }: MasterDashboardProps) =
                         <div className="flex items-center justify-between mb-2">
                           <div className="flex flex-col min-w-0">
                             <span
-                              className={`font-medium truncate flex items-center gap-1 ${isProcessOffline(process.recorded_at) ? 'text-gray-500 dark:text-gray-500' : 'text-gray-900 dark:text-white'}`}
+                              className={`font-medium truncate flex items-center gap-1 ${isProcessOffline(process.recorded_at) ? 'text-red-600 dark:text-red-400' : 'text-gray-900 dark:text-white'}`}
                               title={process.window_info?.window_title || process.name}
                             >
                               {process.window_info?.window_title || process.name}
@@ -1544,7 +1550,7 @@ const MasterDashboard = ({ onSwitchToClient, onLogout }: MasterDashboardProps) =
                             )}
                           </div>
                           {isProcessOffline(process.recorded_at) ? (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400">
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 dark:bg-red-900/50 text-red-600 dark:text-red-400 animate-pulse">
                               <WifiOff className="w-3 h-3" />
                               ออฟไลน์
                             </span>

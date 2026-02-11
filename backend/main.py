@@ -31,7 +31,8 @@ from database_wrapper import (Database, save_process_data, save_alert,
                               delete_monitored_process, get_all_monitored_processes,
                               get_line_settings_db, save_line_settings_db, get_global_line_settings_db,
                               get_alerts_by_type, get_unsent_alerts, mark_alert_as_sent,
-                              get_unsent_process_alerts, get_global_line_settings_for_notification)
+                              get_unsent_process_alerts, get_global_line_settings_for_notification,
+                              get_process_history_log)
 from restart_scheduler import restart_scheduler
 from line_notify import line_notify_service
 from bms_log_monitor import BMSLogMonitor, is_bms_process
@@ -1622,6 +1623,40 @@ async def delete_supabase_test_data():
     except Exception as e:
         logger.error(f"Supabase delete test data failed: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
+
+
+# ============================================================
+# Process History Log API Endpoints
+# ============================================================
+
+@app.get("/api/process-history-log")
+async def api_get_process_history_log(
+    limit: int = 100,
+    action: str = None,
+    process_name: str = None,
+    hospital_code: str = None
+):
+    """Get audit log entries from process_history_log table"""
+    try:
+        if not settings.use_supabase:
+            raise HTTPException(status_code=400, detail="Supabase is not enabled")
+
+        logs = await get_process_history_log(
+            limit=limit,
+            action=action,
+            process_name=process_name,
+            hospital_code=hospital_code
+        )
+        return {
+            "success": True,
+            "count": len(logs),
+            "data": logs
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Get process history log failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # ============================================================

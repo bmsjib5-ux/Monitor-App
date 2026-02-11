@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { RefreshCw, Activity, CheckCircle, XCircle, Clock, Building2, Monitor, LogOut, Cpu, HardDrive, Database, Wifi, ArrowUpDown, Shield, WifiOff } from 'lucide-react';
+import { RefreshCw, Activity, CheckCircle, XCircle, Clock, Building2, Monitor, LogOut, Cpu, HardDrive, Database, Wifi, ArrowUpDown, Shield, WifiOff, Filter } from 'lucide-react';
 import { supabaseApi, ProcessHistory, AlertRecord, getGitHubPagesUser, UserInfo } from '../supabaseClient';
 import PushNotificationToggle from './PushNotificationToggle';
 
@@ -27,6 +27,7 @@ function GitHubPagesDashboard({ onLogout }: GitHubPagesDashboardProps) {
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
   const [activeTab, setActiveTab] = useState<'processes' | 'alerts'>('processes');
   const [sortBy, setSortBy] = useState<SortOption>('hospital');
+  const [filterStatus, setFilterStatus] = useState<string>('all');
 
   const fetchData = async () => {
     setLoading(true);
@@ -46,13 +47,37 @@ function GitHubPagesDashboard({ onLogout }: GitHubPagesDashboardProps) {
     }
   };
 
-  // Filter processes based on user's hospital_code (if not admin)
+  // Offline detection: check if recorded_at is older than threshold
+  const OFFLINE_THRESHOLD_MS = 30 * 1000; // 30 seconds - detect offline quickly
+
+  const isProcessOffline = (recordedAt: string | null): boolean => {
+    if (!recordedAt) return true;
+    return (Date.now() - new Date(recordedAt).getTime()) > OFFLINE_THRESHOLD_MS;
+  };
+
+  // Filter processes based on user's hospital_code (if not admin) + status filter
   const filteredProcesses = useMemo(() => {
-    if (isAdmin || !userHospitalCode) {
-      return processes;
-    }
-    return processes.filter(p => p.hospital_code === userHospitalCode);
-  }, [processes, isAdmin, userHospitalCode]);
+    return processes.filter(p => {
+      // Hospital filter for non-admin
+      if (!isAdmin && userHospitalCode && p.hospital_code !== userHospitalCode) {
+        return false;
+      }
+
+      // Status filter
+      if (filterStatus !== 'all') {
+        const offline = isProcessOffline(p.recorded_at);
+        if (filterStatus === 'offline') {
+          if (!offline) return false;
+        } else if (filterStatus === 'running') {
+          if (p.status !== 'running' || offline) return false;
+        } else if (filterStatus === 'stopped') {
+          if (p.status === 'running' && !offline) return false;
+        }
+      }
+
+      return true;
+    });
+  }, [processes, isAdmin, userHospitalCode, filterStatus]);
 
   // Filter alerts based on user's hospital_code (if not admin)
   const filteredAlerts = useMemo(() => {
@@ -108,14 +133,6 @@ function GitHubPagesDashboard({ onLogout }: GitHubPagesDashboardProps) {
   if (sortBy === 'hospital') {
     groupedProcesses.sort((a, b) => a.hospitalName.localeCompare(b.hospitalName, 'th'));
   }
-
-  // Offline detection: check if recorded_at is older than threshold
-  const OFFLINE_THRESHOLD_MS = 30 * 1000; // 30 seconds - detect offline quickly
-
-  const isProcessOffline = (recordedAt: string | null): boolean => {
-    if (!recordedAt) return true;
-    return (Date.now() - new Date(recordedAt).getTime()) > OFFLINE_THRESHOLD_MS;
-  };
 
   const getOfflineDuration = (recordedAt: string | null): string => {
     if (!recordedAt) return 'ไม่ทราบ';
@@ -325,9 +342,20 @@ function GitHubPagesDashboard({ onLogout }: GitHubPagesDashboardProps) {
             </button>
           </div>
 
-          {/* Sort Dropdown - only show for processes tab */}
+          {/* Status Filter + Sort Dropdown - only show for processes tab */}
           {activeTab === 'processes' && (
             <div className="flex items-center gap-2">
+              <Filter className="w-4 h-4 text-gray-400" />
+              <select
+                value={filterStatus}
+                onChange={(e) => setFilterStatus(e.target.value)}
+                className="bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-sm text-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="all">ทุกสถานะ</option>
+                <option value="running">กำลังทำงาน</option>
+                <option value="stopped">หยุดทำงาน</option>
+                <option value="offline">ออฟไลน์</option>
+              </select>
               <ArrowUpDown className="w-4 h-4 text-gray-400" />
               <select
                 value={sortBy}
@@ -377,18 +405,18 @@ function GitHubPagesDashboard({ onLogout }: GitHubPagesDashboardProps) {
                   </div>
                   <div className="divide-y divide-gray-700">
                     {group.processes.map((proc) => (
-                      <div key={proc.id} className={`px-4 py-3 hover:bg-gray-750 ${isProcessOffline(proc.recorded_at) ? 'opacity-60' : ''}`}>
+                      <div key={proc.id} className={`px-4 py-3 hover:bg-gray-750 ${isProcessOffline(proc.recorded_at) ? 'bg-red-900/10' : ''}`}>
                         <div className="flex items-start justify-between">
                           <div className="flex items-start gap-3">
                             {isProcessOffline(proc.recorded_at) ? (
-                              <WifiOff className="w-5 h-5 text-gray-500 mt-0.5" />
+                              <WifiOff className="w-5 h-5 text-red-400 mt-0.5" />
                             ) : proc.status === 'running' ? (
                               <CheckCircle className="w-5 h-5 text-green-400 mt-0.5" />
                             ) : (
                               <XCircle className="w-5 h-5 text-red-400 mt-0.5" />
                             )}
                             <div>
-                              <p className={`font-medium ${isProcessOffline(proc.recorded_at) ? 'text-gray-500' : ''}`}>{proc.process_name}</p>
+                              <p className={`font-medium ${isProcessOffline(proc.recorded_at) ? 'text-red-400' : ''}`}>{proc.process_name}</p>
                               <p className="text-xs text-gray-400">{proc.hostname}</p>
                               {proc.window_info?.version && (
                                 <p className="text-xs text-gray-500">v{proc.window_info.version}</p>
@@ -397,8 +425,8 @@ function GitHubPagesDashboard({ onLogout }: GitHubPagesDashboardProps) {
                           </div>
                           <div className="text-right space-y-1">
                             {isProcessOffline(proc.recorded_at) ? (
-                              <span className="text-xs px-2 py-0.5 rounded bg-gray-700 text-gray-400">
-                                offline ({getOfflineDuration(proc.recorded_at)})
+                              <span className="text-xs px-2 py-0.5 rounded bg-red-900/50 text-red-400 animate-pulse">
+                                ออฟไลน์ ({getOfflineDuration(proc.recorded_at)})
                               </span>
                             ) : (
                               <span className={`text-xs px-2 py-0.5 rounded ${

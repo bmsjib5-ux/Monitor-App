@@ -657,7 +657,7 @@ function ClientDashboard({ onSwitchToMaster }: ClientDashboardProps) {
                   Client Mode
                 </span>
                 <span className="px-2 py-0.5 bg-gray-200 text-gray-600 dark:bg-gray-700 dark:text-gray-300 text-xs font-mono rounded">
-                  v4.0.60
+                  v4.1.0
                 </span>
               </div>
               <p className="text-sm text-gray-500 dark:text-gray-400">

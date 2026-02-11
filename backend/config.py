@@ -12,7 +12,7 @@ _ENV_FILE_PATH = str(_env_file) if _env_file.exists() else ".env"
 class Settings(BaseSettings):
     # Application settings
     app_name: str = "Windows Application Monitor"
-    app_version: str = "4.0.60"
+    app_version: str = "4.1.0"
 
     # Server settings
     host: str = "0.0.0.0"

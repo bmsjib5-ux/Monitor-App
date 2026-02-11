@@ -941,6 +941,36 @@ async def clear_orphaned_process_history(hostname: str, active_process_names: Li
         return 0
 
 
+# ============== Process History Log ==============
+
+async def get_process_history_log(
+    limit: int = 100,
+    action: str = None,
+    process_name: str = None,
+    hospital_code: str = None
+) -> List[Dict[str, Any]]:
+    """Get audit log entries from process_history_log table"""
+    try:
+        filters = {}
+        if action:
+            filters["action"] = action
+        if process_name:
+            filters["process_name"] = process_name
+        if hospital_code:
+            filters["hospital_code"] = hospital_code
+
+        result = await db.select(
+            "process_history_log",
+            filters=filters if filters else None,
+            order_by="created_at.desc",
+            limit=limit
+        )
+        return result
+    except Exception as e:
+        logger.warning(f"Could not get process_history_log: {e}")
+        return []
+
+
 # ============== LINE OA Settings ==============
 
 def _decrypt_line_settings(record: Dict[str, Any]) -> Dict[str, Any]:

@@ -29,7 +29,8 @@ if settings.use_supabase:
         get_line_settings as get_line_settings_supabase,
         save_line_settings as save_line_settings_supabase,
         delete_line_settings as delete_line_settings_supabase,
-        get_global_line_settings as get_global_line_settings_supabase
+        get_global_line_settings as get_global_line_settings_supabase,
+        get_process_history_log
     )
 
     # Wrapper class for compatibility
@@ -304,5 +305,6 @@ __all__ = [
     'get_line_settings_db',
     'save_line_settings_db',
     'delete_line_settings_db',
-    'get_global_line_settings_db'
+    'get_global_line_settings_db',
+    'get_process_history_log'
 ]
