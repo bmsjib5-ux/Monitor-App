@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { Search, Filter, RefreshCw, Building2, Activity, AlertTriangle, CheckCircle, XCircle, ChevronDown, ChevronUp, Moon, Sun, Monitor, LogOut, Play, Square, Trash2, X, TrendingUp, Clock, Bell, ArrowUpDown, ArrowUp, ArrowDown, MessageSquare, RotateCcw, GripVertical, Info, Shield, BookOpen, Users, Key, WifiOff } from 'lucide-react';
+import { Search, Filter, RefreshCw, Building2, Activity, AlertTriangle, CheckCircle, XCircle, ChevronDown, ChevronUp, Moon, Sun, Monitor, LogOut, Play, Square, Trash2, X, TrendingUp, Clock, Bell, ArrowUpDown, ArrowUp, ArrowDown, MessageSquare, RotateCcw, GripVertical, Info, Shield, BookOpen, Users, Key, WifiOff, Edit } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, AreaChart, Area } from 'recharts';
-import { ProcessInfo, Alert } from '../types';
+import { ProcessInfo, Alert, RestartSchedule, AutoStartSchedule } from '../types';
 import { api } from '../api';
 import { getGitHubPagesUser, UserInfo } from '../supabaseClient';
 import ToastNotification from './ToastNotification';
@@ -10,6 +10,7 @@ import LineSettingsModal from './LineSettingsModal';
 import UserManagementModal from './UserManagementModal';
 import LicenseManagementModal from './LicenseManagementModal';
 import BMSStatusIndicator from './BMSStatusIndicator';
+import EditProcessModal from './EditProcessModal';
 
 interface ProcessHistoryData {
   timestamp: string;
@@ -38,6 +39,19 @@ interface HospitalGroup {
   programVersion?: string; // Version จาก window_info ของโปรแกรม BMS
 }
 
+interface CompanyGroup {
+  companyName: string;
+  hospitals: HospitalGroup[];
+  totalProcesses: number;
+  runningCount: number;
+  stoppedCount: number;
+  offlineCount: number;
+  totalCpu: number;
+  totalMemory: number;
+  warrantyExpiredCount: number;  // หมดประกันแล้ว
+  warrantyWarningCount: number;  // ใกล้หมดประกัน (<90 วัน)
+}
+
 // Sort configuration type
 type SortField = 'hospital_code' | 'hospital_name' | 'name' | 'pid' | 'status' | 'cpu_percent' | 'memory_mb' | 'uptime';
 type SortDirection = 'asc' | 'desc' | null;
@@ -56,8 +70,8 @@ const COLUMN_ORDER_STORAGE_KEY = 'monitorapp_column_order';
 
 // Default column order
 const DEFAULT_COLUMN_ORDER = [
-  'hospital_code', 'hospital_name', 'program', 'version', 'pid', 'status',
-  'gw_status', 'db_hosxp', 'db_gateway', 'cpu', 'memory', 'uptime', 'actions'
+  'hospital_code', 'hospital_name', 'program', 'company', 'install_date', 'warranty_expiry',
+  'version', 'pid', 'status', 'gw_status', 'db_hosxp', 'db_gateway', 'cpu', 'memory', 'uptime', 'actions'
 ];
 
 // Default column widths
@@ -65,6 +79,9 @@ const DEFAULT_COLUMN_WIDTHS: Record<string, number> = {
   hospital_code: 80,
   hospital_name: 180,
   program: 280,
+  company: 90,
+  install_date: 110,
+  warranty_expiry: 120,
   version: 100,
   pid: 70,
   status: 80,
@@ -74,7 +91,7 @@ const DEFAULT_COLUMN_WIDTHS: Record<string, number> = {
   cpu: 80,
   memory: 100,
   uptime: 100,
-  actions: 80
+  actions: 110
 };
 
 // Helper to get column widths from localStorage
@@ -181,10 +198,12 @@ const MasterDashboard = ({ onSwitchToClient, onLogout }: MasterDashboardProps) =
   const [filterHospital, setFilterHospital] = useState<string>('all');
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [filterProgram, setFilterProgram] = useState<string>('all');
+  const [filterCompany, setFilterCompany] = useState<string>('all');
 
   // View mode
-  const [viewMode, setViewMode] = useState<'table' | 'cards'>('cards');
+  const [viewMode, setViewMode] = useState<'table' | 'cards' | 'company'>('cards');
   const [expandedHospitals, setExpandedHospitals] = useState<Set<string>>(new Set());
+  const [expandedCompanies, setExpandedCompanies] = useState<Set<string>>(new Set());
 
   // Sort state
   const [sortConfig, setSortConfig] = useState<SortConfig>({ field: null, direction: null });
@@ -193,6 +212,10 @@ const MasterDashboard = ({ onSwitchToClient, onLogout }: MasterDashboardProps) =
   const [selectedProcess, setSelectedProcess] = useState<ProcessInfo | null>(null);
   const [processHistory, setProcessHistory] = useState<ProcessHistoryData[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
+
+  // Edit process modal state
+  const [editingProcess, setEditingProcess] = useState<ProcessInfo | null>(null);
+  const [showEditModal, setShowEditModal] = useState(false);
 
   // Alert panel
   const [showAlertPanel, setShowAlertPanel] = useState(false);
@@ -209,6 +232,9 @@ const MasterDashboard = ({ onSwitchToClient, onLogout }: MasterDashboardProps) =
   const resizingColumn = useRef<string | null>(null);
   const startX = useRef<number>(0);
   const startWidth = useRef<number>(0);
+
+  // App version
+  const [appVersion, setAppVersion] = useState<string>('');
 
   // Column order state - load from localStorage
   const [columnOrder, setColumnOrder] = useState<string[]>(() => getColumnOrderFromStorage());
@@ -389,6 +415,9 @@ const MasterDashboard = ({ onSwitchToClient, onLogout }: MasterDashboardProps) =
         });
       }
     }
+
+    // Fetch app version from backend
+    api.getStatus().then(s => setAppVersion(s.version)).catch(() => {});
   }, []);
 
   // Load alerts from Supabase
@@ -437,9 +466,20 @@ const MasterDashboard = ({ onSwitchToClient, onLogout }: MasterDashboardProps) =
       if (response.ok) {
         const result = await response.json();
         if (result.data && result.data.length > 0) {
+          // Deduplicate: keep only the latest record per (process_name + hospital_code)
+          // This handles cases where the same process has multiple records (e.g. after restart with new PID)
+          const deduped = new Map<string, any>();
+          for (const item of result.data) {
+            const key = `${(item.process_name || '').toLowerCase()}__${item.hospital_code || ''}`;
+            const existing = deduped.get(key);
+            if (!existing || new Date(item.recorded_at) > new Date(existing.recorded_at)) {
+              deduped.set(key, item);
+            }
+          }
+
           // Transform Supabase data to ProcessInfo format
           // hospital_code is now stored directly in process_history
-          const processData: ProcessInfo[] = result.data.map((item: any) => ({
+          const processData: ProcessInfo[] = Array.from(deduped.values()).map((item: any) => ({
             name: item.process_name,
             pid: item.pid,
             status: item.status,
@@ -453,6 +493,9 @@ const MasterDashboard = ({ onSwitchToClient, onLogout }: MasterDashboardProps) =
             uptime: item.uptime_seconds ? formatUptime(item.uptime_seconds) : '-',
             hospital_code: item.hospital_code || null,
             hospital_name: item.hospital_name || null,
+            company_name: item.company_name || null,
+            install_date: item.install_date || null,
+            warranty_expiry_date: item.warranty_expiry_date || null,
             hostname: item.hostname || null,
             program_path: item.program_path || null,
             recorded_at: item.recorded_at || null,
@@ -474,7 +517,7 @@ const MasterDashboard = ({ onSwitchToClient, onLogout }: MasterDashboardProps) =
               gateway_db_last_error: item.bms_gateway_db_error || null,
               active_threads: 0,
               thread_errors: []
-            } : null
+            } : undefined
           }));
 
           setProcesses(processData);
@@ -598,6 +641,47 @@ const MasterDashboard = ({ onSwitchToClient, onLogout }: MasterDashboardProps) =
     }
   };
 
+  // Open edit modal for a process
+  const handleEditProcess = (process: ProcessInfo) => {
+    setEditingProcess(process);
+    setShowEditModal(true);
+  };
+
+  // Save process metadata from Master Mode (calls admin endpoint)
+  const handleSaveProcessMetadata = async (
+    pid: number | undefined,
+    hostname: string,
+    hospitalCode: string,
+    hospitalName: string,
+    programPath: string,
+    _restartSchedule?: RestartSchedule,
+    _autoStartSchedule?: AutoStartSchedule,
+    companyName?: string,
+    installDate?: string,
+    warrantyExpiryDate?: string
+  ) => {
+    if (!editingProcess) return;
+    try {
+      await api.adminUpdateProcessMetadata(
+        editingProcess.name,
+        hospitalCode,
+        hospitalName,
+        companyName,
+        installDate,
+        warrantyExpiryDate,
+        programPath,
+        pid,
+        hostname
+      );
+      setShowEditModal(false);
+      setEditingProcess(null);
+      loadData();
+    } catch (error) {
+      console.error('Error saving process metadata:', error);
+      alert('เกิดข้อผิดพลาดในการบันทึกข้อมูล');
+    }
+  };
+
   // Open process detail modal
   const handleProcessClick = async (process: ProcessInfo) => {
     setSelectedProcess(process);
@@ -652,21 +736,33 @@ const MasterDashboard = ({ onSwitchToClient, onLogout }: MasterDashboardProps) =
     return [...new Set(processes.map(p => p.name))];
   }, [processes]);
 
+  const uniqueCompanies = useMemo(() => {
+    const companies = processes
+      .map(p => p.company_name)
+      .filter((c): c is string => !!c);
+    return [...new Set(companies)].sort();
+  }, [processes]);
+
   // Offline detection: check if recorded_at is older than threshold
-  const OFFLINE_THRESHOLD_MS = 30 * 1000; // 30 seconds - detect offline quickly
+  // Threshold = 60s: backend writes every ~5s, frontend polls every 10s → worst case ~15s latency, buffer = 45s
+  const OFFLINE_THRESHOLD_MS = 60 * 1000;
 
   const isProcessOffline = useCallback((recordedAt?: string): boolean => {
-    if (!recordedAt) return false; // No data = can't determine, show as normal
+    if (!recordedAt) return true; // No recorded_at = never updated = treat as offline
     return (Date.now() - new Date(recordedAt).getTime()) > OFFLINE_THRESHOLD_MS;
   }, []);
 
   // Filter processes
   const filteredProcesses = useMemo(() => {
     return processes.filter(p => {
-      // For non-admin users, only show their hospital's data
-      if (!isAdmin && currentUser?.hospitalCode) {
-        if (p.hospital_code !== currentUser.hospitalCode) {
-          return false;
+      // Role-based access control
+      if (!isAdmin) {
+        if (currentUser?.role === 'company' && currentUser?.companyName) {
+          // Company user: เห็นเฉพาะ process ที่มี company_name ตรงกัน
+          if (p.company_name !== currentUser.companyName) return false;
+        } else if (currentUser?.hospitalCode) {
+          // Hospital user: เห็นเฉพาะ hospital_code ตรงกัน
+          if (p.hospital_code !== currentUser.hospitalCode) return false;
         }
       }
 
@@ -697,9 +793,13 @@ const MasterDashboard = ({ onSwitchToClient, onLogout }: MasterDashboardProps) =
         return false;
       }
 
+      if (filterCompany !== 'all' && p.company_name !== filterCompany) {
+        return false;
+      }
+
       return true;
     });
-  }, [processes, searchTerm, filterHospital, filterStatus, filterProgram, isAdmin, currentUser, isProcessOffline]);
+  }, [processes, searchTerm, filterHospital, filterStatus, filterProgram, filterCompany, isAdmin, currentUser, isProcessOffline]);
 
   // Handle sort click
   const handleSort = (field: SortField) => {
@@ -841,6 +941,72 @@ const MasterDashboard = ({ onSwitchToClient, onLogout }: MasterDashboardProps) =
     );
   }, [filteredProcesses]);
 
+  // Group by company (for company dashboard view)
+  const companyGroups = useMemo((): CompanyGroup[] => {
+    const today = new Date();
+    const companyMap = new Map<string, { processes: ProcessInfo[] }>();
+
+    filteredProcesses.forEach(p => {
+      const company = p.company_name || '(ไม่ระบุ Company)';
+      if (!companyMap.has(company)) companyMap.set(company, { processes: [] });
+      companyMap.get(company)!.processes.push(p);
+    });
+
+    return Array.from(companyMap.entries())
+      .map(([companyName, { processes }]) => {
+        // Build hospital sub-groups within this company
+        const hospitalMap = new Map<string, HospitalGroup>();
+        processes.forEach(p => {
+          const code = p.hospital_code || 'unknown';
+          if (!hospitalMap.has(code)) {
+            hospitalMap.set(code, {
+              hospitalCode: code,
+              hospitalName: p.hospital_name || 'ไม่ระบุสถานพยาบาล',
+              processes: [],
+              totalCpu: 0, totalMemory: 0,
+              runningCount: 0, stoppedCount: 0,
+            });
+          }
+          const hg = hospitalMap.get(code)!;
+          hg.processes.push(p);
+          hg.totalCpu += p.cpu_percent;
+          hg.totalMemory += p.memory_mb;
+          if (p.status === 'running') hg.runningCount++; else hg.stoppedCount++;
+        });
+
+        const hospitals = Array.from(hospitalMap.values()).sort((a, b) =>
+          a.hospitalCode.localeCompare(b.hospitalCode));
+
+        const running = processes.filter(p => p.status === 'running' && !isProcessOffline(p.recorded_at)).length;
+        const offline = processes.filter(p => isProcessOffline(p.recorded_at)).length;
+        const stopped = processes.length - running - offline;
+
+        let warrantyExpiredCount = 0;
+        let warrantyWarningCount = 0;
+        processes.forEach(p => {
+          if (p.warranty_expiry_date) {
+            const diff = (new Date(p.warranty_expiry_date).getTime() - today.getTime()) / (1000 * 60 * 60 * 24);
+            if (diff < 0) warrantyExpiredCount++;
+            else if (diff < 90) warrantyWarningCount++;
+          }
+        });
+
+        return {
+          companyName,
+          hospitals,
+          totalProcesses: processes.length,
+          runningCount: running,
+          stoppedCount: stopped,
+          offlineCount: offline,
+          totalCpu: processes.reduce((s, p) => s + p.cpu_percent, 0),
+          totalMemory: processes.reduce((s, p) => s + p.memory_mb, 0),
+          warrantyExpiredCount,
+          warrantyWarningCount,
+        };
+      })
+      .sort((a, b) => a.companyName.localeCompare(b.companyName));
+  }, [filteredProcesses, isProcessOffline]);
+
   const getOfflineDuration = useCallback((recordedAt?: string): string => {
     if (!recordedAt) return '0 วินาที';
     const diffMs = Date.now() - new Date(recordedAt).getTime();
@@ -921,6 +1087,9 @@ const MasterDashboard = ({ onSwitchToClient, onLogout }: MasterDashboardProps) =
     hospital_code: { label: 'รหัส', sortField: 'hospital_code', align: 'left', draggable: true },
     hospital_name: { label: 'สถานพยาบาล', sortField: 'hospital_name', align: 'left', draggable: true },
     program: { label: 'โปรแกรม', sortField: 'name', align: 'left', draggable: true },
+    company: { label: 'Company', align: 'left', draggable: true },
+    install_date: { label: 'วันที่ติดตั้ง', align: 'left', draggable: true },
+    warranty_expiry: { label: 'วันที่รับประกัน', align: 'left', draggable: true },
     version: { label: 'Version', align: 'left', draggable: true },
     pid: { label: 'PID', sortField: 'pid', align: 'left', draggable: true },
     status: { label: 'สถานะ', sortField: 'status', align: 'left', draggable: true },
@@ -1002,6 +1171,33 @@ const MasterDashboard = ({ onSwitchToClient, onLogout }: MasterDashboardProps) =
             {process.window_info?.window_title || process.name}
           </td>
         );
+      case 'company':
+        return (
+          <td key={columnKey} style={{ width: columnWidths[columnKey] }} className="px-4 py-3 text-sm text-orange-600 dark:text-orange-400 truncate" title={process.company_name || ''}>
+            {process.company_name || '-'}
+          </td>
+        );
+      case 'install_date':
+        return (
+          <td key={columnKey} style={{ width: columnWidths[columnKey] }} className="px-4 py-3 text-sm text-gray-700 dark:text-gray-300 truncate">
+            {process.install_date ? new Date(process.install_date).toLocaleDateString('th-TH', { day: '2-digit', month: '2-digit', year: '2-digit' }) : '-'}
+          </td>
+        );
+      case 'warranty_expiry': {
+        const isExpired = process.warranty_expiry_date ? new Date(process.warranty_expiry_date) < new Date() : false;
+        const isNearExpiry = process.warranty_expiry_date
+          ? (new Date(process.warranty_expiry_date).getTime() - Date.now()) < 90 * 24 * 60 * 60 * 1000
+          : false;
+        return (
+          <td key={columnKey} style={{ width: columnWidths[columnKey] }} className={`px-4 py-3 text-sm truncate font-medium ${
+            isExpired ? 'text-red-600 dark:text-red-400' :
+            isNearExpiry ? 'text-yellow-600 dark:text-yellow-400' :
+            'text-gray-700 dark:text-gray-300'
+          }`}>
+            {process.warranty_expiry_date ? new Date(process.warranty_expiry_date).toLocaleDateString('th-TH', { day: '2-digit', month: '2-digit', year: '2-digit' }) : '-'}
+          </td>
+        );
+      }
       case 'version':
         return (
           <td key={columnKey} style={{ width: columnWidths[columnKey] }} className="px-4 py-3 text-sm text-blue-600 dark:text-blue-400 font-mono truncate" title={process.window_title || ''}>
@@ -1129,6 +1325,15 @@ const MasterDashboard = ({ onSwitchToClient, onLogout }: MasterDashboardProps) =
               )}
               {isAdmin && (
                 <button
+                  onClick={() => handleEditProcess(process)}
+                  className="p-1.5 rounded-lg bg-blue-100 hover:bg-blue-200 dark:bg-blue-900/30 dark:hover:bg-blue-900/50 text-blue-600 dark:text-blue-400 transition-colors"
+                  title="แก้ไขข้อมูล"
+                >
+                  <Edit className="w-4 h-4" />
+                </button>
+              )}
+              {isAdmin && (
+                <button
                   onClick={() => handleDeleteProcess(process.name, process.pid, process.hospital_code || undefined)}
                   className="p-1.5 rounded-lg bg-red-100 hover:bg-red-200 dark:bg-red-900/30 dark:hover:bg-red-900/50 text-red-600 dark:text-red-400 transition-colors"
                   title="ลบออกจากรายการ"
@@ -1158,18 +1363,22 @@ const MasterDashboard = ({ onSwitchToClient, onLogout }: MasterDashboardProps) =
                     {isAdmin ? 'Admin Monitor Dashboard' : 'Monitor Dashboard'}
                   </h1>
                   <span className="px-3 py-1 bg-white/20 text-white text-sm font-medium rounded-full">
-                    {isAdmin ? 'Master Mode' : 'View Only'}
+                    {isAdmin ? 'Master Mode' : currentUser?.role === 'company' ? 'Company Mode' : 'View Only'}
                   </span>
-                  <span className="px-2 py-0.5 bg-white/30 text-white text-xs font-mono rounded">
-                    v4.1.0
-                  </span>
+                  {appVersion && (
+                    <span className="px-2 py-0.5 bg-white/30 text-white text-xs font-mono rounded">
+                      v{appVersion}
+                    </span>
+                  )}
                 </div>
                 <p className="text-sm text-purple-100">
                   {isAdmin
                     ? 'ภาพรวมการทำงานของทุกสถานพยาบาล'
-                    : currentUser?.hospitalName
-                      ? `${currentUser.hospitalCode} - ${currentUser.hospitalName}`
-                      : `รหัสสถานพยาบาล: ${currentUser?.hospitalCode || '-'}`
+                    : currentUser?.role === 'company' && currentUser?.companyName
+                      ? `Company: ${currentUser.companyName}`
+                      : currentUser?.hospitalName
+                        ? `${currentUser.hospitalCode} - ${currentUser.hospitalName}`
+                        : `รหัสสถานพยาบาล: ${currentUser?.hospitalCode || '-'}`
                   }
                 </p>
               </div>
@@ -1374,6 +1583,18 @@ const MasterDashboard = ({ onSwitchToClient, onLogout }: MasterDashboardProps) =
               ))}
             </select>
 
+            {/* Company Filter */}
+            <select
+              value={filterCompany}
+              onChange={(e) => setFilterCompany(e.target.value)}
+              className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+            >
+              <option value="all">ทุก Company</option>
+              {uniqueCompanies.map(company => (
+                <option key={company} value={company}>{company}</option>
+              ))}
+            </select>
+
             {/* View Mode Toggle */}
             <div className="flex rounded-lg border border-gray-300 dark:border-gray-600 overflow-hidden">
               <button
@@ -1388,18 +1609,32 @@ const MasterDashboard = ({ onSwitchToClient, onLogout }: MasterDashboardProps) =
               >
                 การ์ด
               </button>
+              {isAdmin && (
+                <button
+                  onClick={() => setViewMode('company')}
+                  className={`px-3 py-2 text-sm ${viewMode === 'company' ? 'bg-orange-500 text-white' : 'bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300'}`}
+                >
+                  Company
+                </button>
+              )}
             </div>
 
-            {viewMode === 'cards' && (
+            {(viewMode === 'cards' || viewMode === 'company') && (
               <div className="flex gap-2">
                 <button
-                  onClick={expandAll}
+                  onClick={() => {
+                    if (viewMode === 'cards') expandAll();
+                    else setExpandedCompanies(new Set(companyGroups.map(g => g.companyName)));
+                  }}
                   className="px-3 py-2 text-sm bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300"
                 >
                   ขยายทั้งหมด
                 </button>
                 <button
-                  onClick={collapseAll}
+                  onClick={() => {
+                    if (viewMode === 'cards') collapseAll();
+                    else setExpandedCompanies(new Set());
+                  }}
                   className="px-3 py-2 text-sm bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300"
                 >
                   ย่อทั้งหมด
@@ -1449,6 +1684,188 @@ const MasterDashboard = ({ onSwitchToClient, onLogout }: MasterDashboardProps) =
             </table>
             {filteredProcesses.length === 0 && (
               <div className="text-center py-8 text-gray-500 dark:text-gray-400">
+                ไม่พบข้อมูลที่ตรงกับเงื่อนไข
+              </div>
+            )}
+          </div>
+        ) : viewMode === 'company' ? (
+          /* Company Dashboard View */
+          <div className="space-y-4">
+            {/* Summary row */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <div className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow flex flex-col gap-1">
+                <p className="text-xs text-gray-500 dark:text-gray-400">บริษัททั้งหมด</p>
+                <p className="text-2xl font-bold text-orange-600">{companyGroups.length}</p>
+              </div>
+              <div className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow flex flex-col gap-1">
+                <p className="text-xs text-gray-500 dark:text-gray-400">โปรแกรมทั้งหมด</p>
+                <p className="text-2xl font-bold text-purple-600">{filteredProcesses.length}</p>
+              </div>
+              <div className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow flex flex-col gap-1">
+                <p className="text-xs text-gray-500 dark:text-gray-400">หมดประกันแล้ว</p>
+                <p className={`text-2xl font-bold ${companyGroups.reduce((s, g) => s + g.warrantyExpiredCount, 0) > 0 ? 'text-red-600' : 'text-gray-400'}`}>
+                  {companyGroups.reduce((s, g) => s + g.warrantyExpiredCount, 0)}
+                </p>
+              </div>
+              <div className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow flex flex-col gap-1">
+                <p className="text-xs text-gray-500 dark:text-gray-400">ใกล้หมดประกัน</p>
+                <p className={`text-2xl font-bold ${companyGroups.reduce((s, g) => s + g.warrantyWarningCount, 0) > 0 ? 'text-yellow-500' : 'text-gray-400'}`}>
+                  {companyGroups.reduce((s, g) => s + g.warrantyWarningCount, 0)}
+                </p>
+              </div>
+            </div>
+
+            {/* Company cards */}
+            {companyGroups.map(cg => {
+              const isExpanded = expandedCompanies.has(cg.companyName);
+              const hasOffline = cg.offlineCount > 0;
+              const hasWarrantyIssue = cg.warrantyExpiredCount > 0 || cg.warrantyWarningCount > 0;
+              return (
+                <div key={cg.companyName} className={`bg-white dark:bg-gray-800 rounded-lg shadow overflow-hidden ${hasOffline ? 'ring-2 ring-red-400/40' : hasWarrantyIssue ? 'ring-2 ring-yellow-400/40' : ''}`}>
+                  {/* Company Header */}
+                  <button
+                    onClick={() => {
+                      const next = new Set(expandedCompanies);
+                      if (next.has(cg.companyName)) next.delete(cg.companyName); else next.add(cg.companyName);
+                      setExpandedCompanies(next);
+                    }}
+                    className="w-full px-4 py-4 flex items-center justify-between transition-colors bg-gradient-to-r from-orange-50 to-amber-50 dark:from-orange-900/30 dark:to-amber-900/20 hover:from-orange-100 hover:to-amber-100 dark:hover:from-orange-900/50 dark:hover:to-amber-900/40"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-full bg-orange-500 flex items-center justify-center text-white font-bold text-lg flex-shrink-0">
+                        {cg.companyName.charAt(0).toUpperCase()}
+                      </div>
+                      <div className="text-left">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="font-bold text-gray-900 dark:text-white text-lg">{cg.companyName}</p>
+                          {hasOffline && (
+                            <span className="flex items-center gap-1 px-2 py-0.5 bg-red-100 dark:bg-red-900/50 text-red-600 dark:text-red-400 text-xs rounded-full">
+                              <WifiOff className="w-3 h-3" />{cg.offlineCount} ออฟไลน์
+                            </span>
+                          )}
+                          {cg.warrantyExpiredCount > 0 && (
+                            <span className="px-2 py-0.5 bg-red-100 dark:bg-red-900/50 text-red-600 dark:text-red-400 text-xs rounded-full">
+                              ⚠ หมดประกัน {cg.warrantyExpiredCount}
+                            </span>
+                          )}
+                          {cg.warrantyWarningCount > 0 && (
+                            <span className="px-2 py-0.5 bg-yellow-100 dark:bg-yellow-900/50 text-yellow-700 dark:text-yellow-400 text-xs rounded-full">
+                              ⏰ ใกล้หมด {cg.warrantyWarningCount}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-sm text-gray-500 dark:text-gray-400">
+                          {cg.hospitals.length} รพ. · {cg.totalProcesses} โปรแกรม ·
+                          <span className="text-green-600 dark:text-green-400"> {cg.runningCount} ทำงาน</span> ·
+                          <span className="text-red-500 dark:text-red-400"> {cg.stoppedCount} หยุด</span>
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-6 pr-2">
+                      <div className="text-right hidden sm:block">
+                        <p className="text-xs text-gray-500 dark:text-gray-400">CPU รวม</p>
+                        <p className="font-semibold text-gray-900 dark:text-white">{cg.totalCpu.toFixed(1)}%</p>
+                      </div>
+                      <div className="text-right hidden sm:block">
+                        <p className="text-xs text-gray-500 dark:text-gray-400">Memory รวม</p>
+                        <p className="font-semibold text-gray-900 dark:text-white">{(cg.totalMemory / 1024).toFixed(1)} GB</p>
+                      </div>
+                      {isExpanded ? <ChevronUp className="w-5 h-5 text-gray-500 flex-shrink-0" /> : <ChevronDown className="w-5 h-5 text-gray-500 flex-shrink-0" />}
+                    </div>
+                  </button>
+
+                  {/* Hospital sub-groups */}
+                  {isExpanded && (
+                    <div className="divide-y divide-gray-100 dark:divide-gray-700">
+                      {cg.hospitals.map(hg => {
+                        const hOffline = isHospitalGroupOffline(hg.processes);
+                        return (
+                          <div key={hg.hospitalCode} className={`px-4 py-3 ${hOffline ? 'bg-red-50/30 dark:bg-red-900/10' : 'bg-gray-50/50 dark:bg-gray-700/20'}`}>
+                            {/* Hospital sub-header */}
+                            <div className="flex items-center justify-between mb-2">
+                              <div className="flex items-center gap-2">
+                                {hOffline ? <WifiOff className="w-4 h-4 text-red-500" /> : <Building2 className="w-4 h-4 text-purple-500" />}
+                                <span className={`font-medium text-sm ${hOffline ? 'text-red-600 dark:text-red-400' : 'text-gray-800 dark:text-gray-200'}`}>
+                                  {hg.hospitalCode !== 'unknown' ? `[${hg.hospitalCode}] ` : ''}{hg.hospitalName}
+                                </span>
+                                {hOffline && (
+                                  <span className="text-xs text-red-500 animate-pulse">
+                                    ออฟไลน์ {getOfflineDuration(hg.processes[0]?.recorded_at)}
+                                  </span>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-3 text-xs text-gray-500 dark:text-gray-400">
+                                <span className="text-green-600 dark:text-green-400">{hg.runningCount} ทำงาน</span>
+                                <span className="text-red-500 dark:text-red-400">{hg.stoppedCount} หยุด</span>
+                              </div>
+                            </div>
+                            {/* Process rows */}
+                            <div className="overflow-x-auto">
+                              <table className="w-full text-xs">
+                                <thead>
+                                  <tr className="text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-600">
+                                    <th className="text-left py-1 pr-3 font-medium">โปรแกรม</th>
+                                    <th className="text-left py-1 pr-3 font-medium">Version</th>
+                                    <th className="text-center py-1 pr-3 font-medium">สถานะ</th>
+                                    <th className="text-right py-1 pr-3 font-medium">CPU</th>
+                                    <th className="text-right py-1 pr-3 font-medium">Memory</th>
+                                    <th className="text-left py-1 pr-3 font-medium">รับประกันถึง</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {hg.processes.map((p, idx) => {
+                                    const pOffline = isProcessOffline(p.recorded_at);
+                                    const today2 = new Date();
+                                    let warrantyColor = '';
+                                    if (p.warranty_expiry_date) {
+                                      const diff = (new Date(p.warranty_expiry_date).getTime() - today2.getTime()) / 86400000;
+                                      if (diff < 0) warrantyColor = 'text-red-500';
+                                      else if (diff < 90) warrantyColor = 'text-yellow-500';
+                                    }
+                                    return (
+                                      <tr key={idx} className={`border-b border-gray-100 dark:border-gray-700/50 ${pOffline ? 'bg-red-50/40 dark:bg-red-900/10' : ''}`}>
+                                        <td className="py-1.5 pr-3 font-medium text-gray-900 dark:text-white truncate max-w-[200px]">{p.name}</td>
+                                        <td className="py-1.5 pr-3 text-gray-500 dark:text-gray-400 font-mono">
+                                          {p.window_info?.version ? `v${p.window_info.version}` : '-'}
+                                        </td>
+                                        <td className="py-1.5 pr-3 text-center">
+                                          {pOffline ? (
+                                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 rounded text-xs">
+                                              <WifiOff className="w-3 h-3" />ออฟไลน์
+                                            </span>
+                                          ) : p.status === 'running' ? (
+                                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 rounded text-xs">
+                                              <CheckCircle className="w-3 h-3" />ทำงาน
+                                            </span>
+                                          ) : (
+                                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 rounded text-xs">
+                                              <XCircle className="w-3 h-3" />หยุด
+                                            </span>
+                                          )}
+                                        </td>
+                                        <td className="py-1.5 pr-3 text-right text-gray-700 dark:text-gray-300">{p.cpu_percent.toFixed(1)}%</td>
+                                        <td className="py-1.5 pr-3 text-right text-gray-700 dark:text-gray-300">{p.memory_mb.toFixed(0)} MB</td>
+                                        <td className={`py-1.5 pr-3 font-medium ${warrantyColor || 'text-gray-500 dark:text-gray-400'}`}>
+                                          {p.warranty_expiry_date
+                                            ? new Date(p.warranty_expiry_date).toLocaleDateString('th-TH', { day: '2-digit', month: '2-digit', year: 'numeric' })
+                                            : '-'}
+                                        </td>
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+            {companyGroups.length === 0 && (
+              <div className="text-center py-8 text-gray-500 dark:text-gray-400 bg-white dark:bg-gray-800 rounded-lg">
                 ไม่พบข้อมูลที่ตรงกับเงื่อนไข
               </div>
             )}
@@ -1624,6 +2041,16 @@ const MasterDashboard = ({ onSwitchToClient, onLogout }: MasterDashboardProps) =
                             >
                               <Play className="w-3 h-3" />
                               Start
+                            </button>
+                          )}
+                          {isAdmin && (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); handleEditProcess(process); }}
+                              className="flex items-center gap-1 px-2 py-1 rounded bg-blue-100 hover:bg-blue-200 dark:bg-blue-900/30 dark:hover:bg-blue-900/50 text-blue-600 dark:text-blue-400 text-xs font-medium transition-colors"
+                              title="แก้ไขข้อมูล"
+                            >
+                              <Edit className="w-3 h-3" />
+                              Edit
                             </button>
                           )}
                           {isAdmin && (
@@ -1871,6 +2298,23 @@ const MasterDashboard = ({ onSwitchToClient, onLogout }: MasterDashboardProps) =
           </div>
         </div>
       )}
+      {/* Edit Process Modal */}
+      {showEditModal && editingProcess && (
+        <EditProcessModal
+          processName={editingProcess.name}
+          pid={editingProcess.pid}
+          currentHostname={editingProcess.hostname}
+          currentHospitalCode={editingProcess.hospital_code || ''}
+          currentHospitalName={editingProcess.hospital_name || ''}
+          currentCompanyName={editingProcess.company_name || ''}
+          currentInstallDate={editingProcess.install_date || ''}
+          currentWarrantyExpiryDate={editingProcess.warranty_expiry_date || ''}
+          currentProgramPath={editingProcess.program_path || ''}
+          onClose={() => { setShowEditModal(false); setEditingProcess(null); }}
+          onSave={handleSaveProcessMetadata}
+        />
+      )}
+
       {/* Information Modal */}
       {showInfoModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowInfoModal(false)}>

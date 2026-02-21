@@ -80,6 +80,9 @@ export interface ProcessInfo {
   create_time?: number;
   hospital_code?: string;
   hospital_name?: string;
+  company_name?: string;
+  install_date?: string;          // YYYY-MM-DD
+  warranty_expiry_date?: string;  // YYYY-MM-DD
   hostname?: string;
   program_path?: string;
   last_started?: string;
@@ -165,6 +168,9 @@ export interface AddProcessData {
   hostname?: string;
   hospitalCode: string;
   hospitalName: string;
+  companyName?: string;
+  installDate?: string;          // YYYY-MM-DD
+  warrantyExpiryDate?: string;   // YYYY-MM-DD
   programPath?: string;
 }
 

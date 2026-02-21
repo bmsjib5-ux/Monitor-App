@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { X, Search, Building2, FolderOpen, Monitor, Loader2 } from 'lucide-react';
+import { X, Search, Building2, FolderOpen, Monitor, Loader2, Calendar } from 'lucide-react';
 import { api } from '../api';
 import { AvailableProcess, AddProcessData, WindowInfo } from '../types';
 
@@ -41,6 +41,9 @@ const AddProcessModal = ({ onClose, onAdd, defaultHospitalCode, defaultHospitalN
   const [hostname, setHostname] = useState('');
   const [hospitalCode, setHospitalCode] = useState('');
   const [hospitalName, setHospitalName] = useState('');
+  const [companyName, setCompanyName] = useState('');
+  const [installDate, setInstallDate] = useState('');
+  const [warrantyExpiryDate, setWarrantyExpiryDate] = useState('');
   const [programPath, setProgramPath] = useState('');
   const [availableProcesses, setAvailableProcesses] = useState<AvailableProcess[]>([]);
   const [filteredProcesses, setFilteredProcesses] = useState<AvailableProcess[]>([]);
@@ -137,6 +140,9 @@ const AddProcessModal = ({ onClose, onAdd, defaultHospitalCode, defaultHospitalN
         hostname: hostname.trim(),
         hospitalCode: hospitalCode.trim(),
         hospitalName: hospitalName.trim(),
+        companyName: companyName.trim() || undefined,
+        installDate: installDate || undefined,
+        warrantyExpiryDate: warrantyExpiryDate || undefined,
         programPath: programPath.trim() || undefined
       });
     }
@@ -159,13 +165,16 @@ const AddProcessModal = ({ onClose, onAdd, defaultHospitalCode, defaultHospitalN
       setWindowTitle(result.window_title);
       setWindowInfo(result.window_info);
 
-      // Auto-fill hospital code and name from window info if available and not already set
+      // Auto-fill hospital code, name and company from window info if available and not already set
       if (result.window_info) {
         if (result.window_info.hospital_code && !hospitalCode) {
           setHospitalCode(result.window_info.hospital_code);
         }
         if (result.window_info.hospital_name && !hospitalName) {
           setHospitalName(result.window_info.hospital_name);
+        }
+        if (result.window_info.company && !companyName) {
+          setCompanyName(result.window_info.company);
         }
       }
     } catch (error) {
@@ -181,6 +190,18 @@ const AddProcessModal = ({ onClose, onAdd, defaultHospitalCode, defaultHospitalN
     setHospitalCode(cleaned);
     if (errors.hospitalCode) {
       setErrors(prev => ({ ...prev, hospitalCode: '' }));
+    }
+  };
+
+  const handleInstallDateChange = (value: string) => {
+    setInstallDate(value);
+    // Auto-calculate warranty expiry date = install_date + 1 year
+    if (value) {
+      const expiry = new Date(value);
+      expiry.setFullYear(expiry.getFullYear() + 1);
+      setWarrantyExpiryDate(expiry.toISOString().split('T')[0]);
+    } else {
+      setWarrantyExpiryDate('');
     }
   };
 
@@ -360,6 +381,59 @@ const AddProcessModal = ({ onClose, onAdd, defaultHospitalCode, defaultHospitalN
               {errors.hospitalName && (
                 <p className="mt-1 text-sm text-red-500">{errors.hospitalName}</p>
               )}
+            </div>
+
+            {/* Company Name (Optional, auto-fill from Window Info) */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                <Building2 className="w-4 h-4 inline mr-1" />
+                Company Name
+              </label>
+              <input
+                type="text"
+                value={companyName}
+                onChange={(e) => setCompanyName(e.target.value)}
+                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                placeholder="e.g., Inter, AI"
+              />
+              {windowInfo?.company && (
+                <p className="mt-1 text-xs text-blue-500 dark:text-blue-400">
+                  ดึงจาก Window Info: {windowInfo.company}
+                </p>
+              )}
+            </div>
+
+            {/* Install Date and Warranty Expiry */}
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  <Calendar className="w-4 h-4 inline mr-1" />
+                  วันที่ติดตั้ง Gateway
+                </label>
+                <input
+                  type="date"
+                  value={installDate}
+                  onChange={(e) => handleInstallDateChange(e.target.value)}
+                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  <Calendar className="w-4 h-4 inline mr-1" />
+                  วันที่หมดประกัน
+                </label>
+                <input
+                  type="date"
+                  value={warrantyExpiryDate}
+                  onChange={(e) => setWarrantyExpiryDate(e.target.value)}
+                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                />
+                {installDate && warrantyExpiryDate && (
+                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                    คำนวณจากวันติดตั้ง + 1 ปี (แก้ไขได้)
+                  </p>
+                )}
+              </div>
             </div>
 
             {/* Program Path (Optional) */}

@@ -157,9 +157,10 @@ export interface HospitalUser {
   id: number;
   username: string;
   display_name: string | null;
-  hospital_code: string;
+  hospital_code: string | null;
   hospital_name: string | null;
-  role: string;
+  company_name: string | null;
+  role: string;  // 'admin' | 'user' | 'company'
   is_active: boolean;
   last_login: string | null;
   created_at: string;
@@ -192,13 +193,14 @@ export const isGitHubPagesAuthenticated = (): boolean => {
   return false;
 };
 
-// User info type with hospital data
+// User info type with hospital/company data
 export interface UserInfo {
   username: string;
   displayName: string;
-  role: string;
+  role: string;  // 'admin' | 'user' | 'company'
   hospitalCode?: string;
   hospitalName?: string;
+  companyName?: string;  // สำหรับ role = 'company'
   isAdmin: boolean;
 }
 
@@ -258,6 +260,7 @@ export const supabaseApi = {
             role: result.role || 'user',
             hospitalCode: result.hospital_code || undefined,
             hospitalName: result.hospital_name || undefined,
+            companyName: result.company_name || undefined,
             isAdmin: isAdmin,
           } as UserInfo));
 
@@ -390,8 +393,10 @@ export const supabaseApi = {
     username: string;
     password: string;
     display_name: string;
-    hospital_code: string;
+    hospital_code?: string;
     hospital_name?: string;
+    company_name?: string;
+    role?: string;
   }): Promise<{ success: boolean; user_id?: number; message: string }> => {
     try {
       const response = await fetch(`${SUPABASE_URL}/rest/v1/rpc/create_hospital_user`, {
@@ -405,8 +410,10 @@ export const supabaseApi = {
           p_username: data.username,
           p_password: data.password,
           p_display_name: data.display_name,
-          p_hospital_code: data.hospital_code,
+          p_hospital_code: data.hospital_code || null,
           p_hospital_name: data.hospital_name || null,
+          p_company_name: data.company_name || null,
+          p_role: data.role || 'user',
         }),
       });
 
@@ -431,6 +438,8 @@ export const supabaseApi = {
     display_name?: string;
     hospital_code?: string;
     hospital_name?: string;
+    company_name?: string;
+    role?: string;
     is_active?: boolean;
     new_password?: string;
   }): Promise<{ success: boolean; message: string }> => {
@@ -447,6 +456,8 @@ export const supabaseApi = {
           p_display_name: data.display_name || null,
           p_hospital_code: data.hospital_code || null,
           p_hospital_name: data.hospital_name || null,
+          p_company_name: data.company_name || null,
+          p_role: data.role || null,
           p_is_active: data.is_active ?? null,
           p_new_password: data.new_password || null,
         }),

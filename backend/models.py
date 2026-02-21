@@ -42,6 +42,9 @@ class ProcessInfo(BaseModel):
     create_time: Optional[float] = None
     hospital_code: Optional[str] = None
     hospital_name: Optional[str] = None
+    company_name: Optional[str] = None
+    install_date: Optional[str] = None          # YYYY-MM-DD
+    warranty_expiry_date: Optional[str] = None  # YYYY-MM-DD
     program_path: Optional[str] = None
     restart_schedule: Optional[RestartScheduleInfo] = None
     auto_start_schedule: Optional[AutoStartScheduleInfo] = None
@@ -146,6 +149,9 @@ class ProcessMetadataUpdate(BaseModel):
     hostname: Optional[str] = None
     hospital_code: Optional[str] = None
     hospital_name: Optional[str] = None
+    company_name: Optional[str] = None
+    install_date: Optional[str] = None          # YYYY-MM-DD
+    warranty_expiry_date: Optional[str] = None  # YYYY-MM-DD
     program_path: Optional[str] = None
     is_edit: Optional[bool] = False  # True for Edit, False for Add
     restart_schedule: Optional[RestartSchedule] = None

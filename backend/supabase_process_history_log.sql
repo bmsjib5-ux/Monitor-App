@@ -26,13 +26,17 @@ CREATE INDEX IF NOT EXISTS idx_ph_log_hostname ON process_history_log(hostname);
 CREATE INDEX IF NOT EXISTS idx_ph_log_hospital_code ON process_history_log(hospital_code);
 CREATE INDEX IF NOT EXISTS idx_ph_log_created_at ON process_history_log(created_at);
 
--- ======== PART 2: Trigger Function - บันทึก log อัตโนมัติ ========
+-- ======== PART 2: Trigger Function - บันทึก log เฉพาะ เพิ่ม/แก้ไข/ลบ process ========
+-- ไม่บันทึก: อัพเดท metrics (cpu, memory, status, recorded_at) ที่เกิดทุก 5 วินาที
+-- บันทึกเฉพาะ: INSERT (เพิ่ม process), DELETE (ลบ process),
+--              UPDATE เฉพาะเมื่อข้อมูลสำคัญเปลี่ยน (process_name, pid, hostname, hospital_code, hospital_name, program_path)
 CREATE OR REPLACE FUNCTION log_process_history_changes()
 RETURNS TRIGGER
 LANGUAGE plpgsql
 SECURITY DEFINER
 AS $$
 BEGIN
+    -- INSERT = เพิ่ม process ใหม่
     IF TG_OP = 'INSERT' THEN
         INSERT INTO process_history_log (
             action, process_name, pid, hostname, hospital_code, hospital_name, status,
@@ -51,24 +55,35 @@ BEGIN
         );
         RETURN NEW;
 
+    -- UPDATE = บันทึกเฉพาะเมื่อข้อมูลสำคัญเปลี่ยน (ไม่รวม metrics)
     ELSIF TG_OP = 'UPDATE' THEN
-        INSERT INTO process_history_log (
-            action, process_name, pid, hostname, hospital_code, hospital_name, status,
-            old_data, new_data, changed_by
-        ) VALUES (
-            'UPDATE',
-            NEW.process_name,
-            NEW.pid,
-            NEW.hostname,
-            NEW.hospital_code,
-            NEW.hospital_name,
-            NEW.status,
-            to_jsonb(OLD),
-            to_jsonb(NEW),
-            'trigger'
-        );
+        -- ตรวจสอบว่ามีการเปลี่ยนแปลงข้อมูลสำคัญหรือไม่
+        IF OLD.process_name IS DISTINCT FROM NEW.process_name
+           OR OLD.pid IS DISTINCT FROM NEW.pid
+           OR OLD.hostname IS DISTINCT FROM NEW.hostname
+           OR OLD.hospital_code IS DISTINCT FROM NEW.hospital_code
+           OR OLD.hospital_name IS DISTINCT FROM NEW.hospital_name
+           OR OLD.program_path IS DISTINCT FROM NEW.program_path
+        THEN
+            INSERT INTO process_history_log (
+                action, process_name, pid, hostname, hospital_code, hospital_name, status,
+                old_data, new_data, changed_by
+            ) VALUES (
+                'UPDATE',
+                NEW.process_name,
+                NEW.pid,
+                NEW.hostname,
+                NEW.hospital_code,
+                NEW.hospital_name,
+                NEW.status,
+                to_jsonb(OLD),
+                to_jsonb(NEW),
+                'trigger'
+            );
+        END IF;
         RETURN NEW;
 
+    -- DELETE = ลบ process
     ELSIF TG_OP = 'DELETE' THEN
         INSERT INTO process_history_log (
             action, process_name, pid, hostname, hospital_code, hospital_name, status,
@@ -96,7 +111,7 @@ $$;
 -- ลบ trigger เดิม (ถ้ามี)
 DROP TRIGGER IF EXISTS trg_process_history_log ON process_history;
 
--- สร้าง trigger ใหม่ - บันทึกทุก INSERT, UPDATE, DELETE
+-- สร้าง trigger ใหม่ - บันทึกเฉพาะ เพิ่ม/แก้ไข/ลบ process (ไม่รวม metrics update)
 CREATE TRIGGER trg_process_history_log
 AFTER INSERT OR UPDATE OR DELETE
 ON process_history

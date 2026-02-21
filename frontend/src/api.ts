@@ -26,7 +26,7 @@ export const api = {
     });
   },
 
-  updateProcessMetadata: async (name: string, pid?: number, hostname?: string, hospitalCode?: string, hospitalName?: string, programPath?: string, isEdit: boolean = false, restartSchedule?: RestartSchedule, autoStartSchedule?: AutoStartSchedule): Promise<{ message: string; supabase_warning?: string }> => {
+  updateProcessMetadata: async (name: string, pid?: number, hostname?: string, hospitalCode?: string, hospitalName?: string, programPath?: string, isEdit: boolean = false, restartSchedule?: RestartSchedule, autoStartSchedule?: AutoStartSchedule, companyName?: string, installDate?: string, warrantyExpiryDate?: string): Promise<{ message: string; supabase_warning?: string }> => {
     const response = await axios.patch(`${API_BASE_URL}/api/processes/${name}/metadata`, {
       pid: pid,
       hostname: hostname,
@@ -35,7 +35,24 @@ export const api = {
       program_path: programPath,
       is_edit: isEdit,
       restart_schedule: restartSchedule,
-      auto_start_schedule: autoStartSchedule
+      auto_start_schedule: autoStartSchedule,
+      company_name: companyName,
+      install_date: installDate,
+      warranty_expiry_date: warrantyExpiryDate
+    });
+    return response.data;
+  },
+
+  adminUpdateProcessMetadata: async (name: string, hospitalCode?: string, hospitalName?: string, companyName?: string, installDate?: string, warrantyExpiryDate?: string, programPath?: string, pid?: number, hostname?: string): Promise<{ message: string }> => {
+    const response = await axios.patch(`${API_BASE_URL}/api/admin/processes/${encodeURIComponent(name)}/metadata`, {
+      hospital_code: hospitalCode,
+      hospital_name: hospitalName,
+      company_name: companyName,
+      install_date: installDate,
+      warranty_expiry_date: warrantyExpiryDate,
+      program_path: programPath,
+      pid: pid,
+      hostname: hostname
     });
     return response.data;
   },
@@ -199,6 +216,12 @@ export const api = {
   // Clear local cache - removes local orphaned data only (does NOT delete Supabase data)
   clearCache: async (): Promise<{ success: boolean; message: string; details: { logs_cleared: boolean; local_metadata_cleaned: number; local_cache_cleared: boolean; kept_processes: string[] } }> => {
     const response = await axios.post(`${API_BASE_URL}/api/clear-cache`);
+    return response.data;
+  },
+
+  // App status & version
+  getStatus: async (): Promise<{ status: string; version: string; hostname: string }> => {
+    const response = await axios.get(`${API_BASE_URL}/api/status`);
     return response.data;
   },
 };

@@ -355,6 +355,9 @@ function ClientDashboard({ onSwitchToMaster }: ClientDashboardProps) {
     hostname?: string;
     hospitalCode: string;
     hospitalName: string;
+    companyName?: string;
+    installDate?: string;
+    warrantyExpiryDate?: string;
     programPath?: string;
   }) => {
     try {
@@ -369,7 +372,12 @@ function ClientDashboard({ onSwitchToMaster }: ClientDashboardProps) {
         data.hospitalCode,
         data.hospitalName,
         data.programPath,
-        false  // isEdit=false for Add Process
+        false,  // isEdit=false for Add Process
+        undefined,
+        undefined,
+        data.companyName,
+        data.installDate,
+        data.warrantyExpiryDate
       );
 
       // Save to local storage for persistence
@@ -465,7 +473,7 @@ function ClientDashboard({ onSwitchToMaster }: ClientDashboardProps) {
     }
   };
 
-  const handleSaveProcessMetadata = async (pid: number | undefined, hostname: string, hospitalCode: string, hospitalName: string, programPath: string, restartSchedule?: RestartSchedule, autoStartSchedule?: AutoStartSchedule) => {
+  const handleSaveProcessMetadata = async (pid: number | undefined, hostname: string, hospitalCode: string, hospitalName: string, programPath: string, restartSchedule?: RestartSchedule, autoStartSchedule?: AutoStartSchedule, companyName?: string, installDate?: string, warrantyExpiryDate?: string) => {
     if (!editingProcess) return;
 
     try {
@@ -479,7 +487,10 @@ function ClientDashboard({ onSwitchToMaster }: ClientDashboardProps) {
         programPath || undefined,
         true,  // isEdit=true for Edit Process
         restartSchedule,
-        autoStartSchedule
+        autoStartSchedule,
+        companyName,
+        installDate,
+        warrantyExpiryDate
       );
 
       // Save to local storage for persistence on this PC
@@ -859,6 +870,9 @@ function ClientDashboard({ onSwitchToMaster }: ClientDashboardProps) {
           currentHostname={editingProcess.hostname}
           currentHospitalCode={editingProcess.hospital_code}
           currentHospitalName={editingProcess.hospital_name}
+          currentCompanyName={editingProcess.company_name}
+          currentInstallDate={editingProcess.install_date}
+          currentWarrantyExpiryDate={editingProcess.warranty_expiry_date}
           currentProgramPath={editingProcess.program_path}
           currentRestartSchedule={editingProcess.restart_schedule}
           currentAutoStartSchedule={editingProcess.auto_start_schedule}

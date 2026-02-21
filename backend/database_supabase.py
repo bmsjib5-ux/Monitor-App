@@ -282,6 +282,8 @@ _has_start_stop_columns = True
 _has_client_version_column = True
 _has_window_info_column = True
 _has_bms_status_columns = True
+_has_company_name_column = True
+_has_install_date_column = True
 
 
 # Helper functions for process history
@@ -294,7 +296,7 @@ async def save_process_data(process_data: Dict[str, Any]) -> None:
     Key: ใช้ process_name + hostname เป็น unique key (ไม่ใช่ PID)
     เพื่อให้ชื่อโปรแกรมเดียวกันบนเครื่องเดียวกัน มี record เดียว
     """
-    global _has_start_stop_columns, _has_client_version_column, _has_window_info_column, _has_bms_status_columns
+    global _has_start_stop_columns, _has_client_version_column, _has_window_info_column, _has_bms_status_columns, _has_company_name_column, _has_install_date_column
 
     process_name = process_data.get('name')
     current_status = process_data.get('status')
@@ -468,6 +470,21 @@ async def save_process_data(process_data: Dict[str, Any]) -> None:
                 logger.warning("window_title/window_info columns not found. Run migration to add them.")
                 update_data.pop('window_title', None)
                 update_data.pop('window_info', None)
+                needs_retry = True
+
+            # If error due to missing company_name column
+            if 'company_name' in error_str:
+                _has_company_name_column = False
+                logger.warning("company_name column not found. Run supabase_company_install_warranty.sql migration.")
+                update_data.pop('company_name', None)
+                needs_retry = True
+
+            # If error due to missing install_date/warranty_expiry_date columns
+            if 'install_date' in error_str or 'warranty_expiry_date' in error_str:
+                _has_install_date_column = False
+                logger.warning("install_date/warranty_expiry_date columns not found. Run supabase_company_install_warranty.sql migration.")
+                update_data.pop('install_date', None)
+                update_data.pop('warranty_expiry_date', None)
                 needs_retry = True
 
             # If error due to missing BMS status columns
@@ -740,7 +757,7 @@ async def get_monitored_process(process_name: str, hospital_code: Optional[str] 
     return result[0] if result else None
 
 
-async def save_monitored_process(process_name: str, pid: Optional[int] = None, hospital_code: Optional[str] = None, hospital_name: Optional[str] = None, hostname: Optional[str] = None, program_path: Optional[str] = None, is_edit: bool = False, window_title: Optional[str] = None, window_info: Optional[Dict[str, Any]] = None, client_version: Optional[str] = None) -> None:
+async def save_monitored_process(process_name: str, pid: Optional[int] = None, hospital_code: Optional[str] = None, hospital_name: Optional[str] = None, hostname: Optional[str] = None, program_path: Optional[str] = None, is_edit: bool = False, window_title: Optional[str] = None, window_info: Optional[Dict[str, Any]] = None, client_version: Optional[str] = None, company_name: Optional[str] = None, install_date: Optional[str] = None, warranty_expiry_date: Optional[str] = None) -> None:
     """
     Save monitored process to process_history table
 
@@ -792,6 +809,13 @@ async def save_monitored_process(process_name: str, pid: Optional[int] = None, h
                 # These should only be set during Add Process
                 if client_version and _has_client_version_column:
                     update_data["client_version"] = client_version
+                if _has_company_name_column and company_name is not None:
+                    update_data["company_name"] = company_name
+                if _has_install_date_column:
+                    if install_date is not None:
+                        update_data["install_date"] = install_date
+                    if warranty_expiry_date is not None:
+                        update_data["warranty_expiry_date"] = warranty_expiry_date
 
                 if update_data and record_id:
                     await db.update(
@@ -860,6 +884,15 @@ async def save_monitored_process(process_name: str, pid: Optional[int] = None, h
                 # Add client version if column exists
                 if _has_client_version_column and client_version:
                     insert_data["client_version"] = client_version
+
+                # Add company_name, install_date, warranty_expiry_date if columns exist
+                if _has_company_name_column and company_name:
+                    insert_data["company_name"] = company_name
+                if _has_install_date_column:
+                    if install_date:
+                        insert_data["install_date"] = install_date
+                    if warranty_expiry_date:
+                        insert_data["warranty_expiry_date"] = warranty_expiry_date
 
                 # Remove None values
                 insert_data = {k: v for k, v in insert_data.items() if v is not None}

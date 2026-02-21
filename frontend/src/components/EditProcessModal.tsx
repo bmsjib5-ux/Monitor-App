@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { X, Save, AlertCircle, Clock, RotateCcw, Play, Monitor, Loader2 } from 'lucide-react';
+import { X, Save, AlertCircle, Clock, RotateCcw, Play, Monitor, Loader2, Calendar, Building2 } from 'lucide-react';
 import { api } from '../api';
 import { RestartSchedule, RestartScheduleType, AutoStartSchedule, AutoStartScheduleType, WindowInfo } from '../types';
 
@@ -12,13 +12,16 @@ interface EditProcessModalProps {
   currentHostname?: string;
   currentHospitalCode?: string;
   currentHospitalName?: string;
+  currentCompanyName?: string;
+  currentInstallDate?: string;
+  currentWarrantyExpiryDate?: string;
   currentProgramPath?: string;
   currentRestartSchedule?: RestartSchedule;
   currentAutoStartSchedule?: AutoStartSchedule;
   currentWindowTitle?: string;
   currentWindowInfo?: WindowInfo;
   onClose: () => void;
-  onSave: (pid: number | undefined, hostname: string, hospitalCode: string, hospitalName: string, programPath: string, restartSchedule?: RestartSchedule, autoStartSchedule?: AutoStartSchedule) => void;
+  onSave: (pid: number | undefined, hostname: string, hospitalCode: string, hospitalName: string, programPath: string, restartSchedule?: RestartSchedule, autoStartSchedule?: AutoStartSchedule, companyName?: string, installDate?: string, warrantyExpiryDate?: string) => void;
 }
 
 const EditProcessModal = ({
@@ -27,6 +30,9 @@ const EditProcessModal = ({
   currentHostname,
   currentHospitalCode,
   currentHospitalName,
+  currentCompanyName,
+  currentInstallDate,
+  currentWarrantyExpiryDate,
   currentProgramPath,
   currentRestartSchedule,
   currentAutoStartSchedule,
@@ -38,6 +44,9 @@ const EditProcessModal = ({
   const [hostname, setHostname] = useState(currentHostname || '');
   const [hospitalCode, setHospitalCode] = useState(currentHospitalCode || '');
   const [hospitalName, setHospitalName] = useState(currentHospitalName || '');
+  const [companyName, setCompanyName] = useState(currentCompanyName || '');
+  const [installDate, setInstallDate] = useState(currentInstallDate || '');
+  const [warrantyExpiryDate, setWarrantyExpiryDate] = useState(currentWarrantyExpiryDate || '');
   const [programPath, setProgramPath] = useState(currentProgramPath || '');
   const [codeError, setCodeError] = useState('');
 
@@ -137,6 +146,18 @@ const EditProcessModal = ({
     }
   };
 
+  const handleInstallDateChange = (value: string) => {
+    setInstallDate(value);
+    // Auto-calculate warranty expiry date = install_date + 1 year
+    if (value) {
+      const expiry = new Date(value);
+      expiry.setFullYear(expiry.getFullYear() + 1);
+      setWarrantyExpiryDate(expiry.toISOString().split('T')[0]);
+    } else {
+      setWarrantyExpiryDate('');
+    }
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -164,7 +185,7 @@ const EditProcessModal = ({
       dailyTime: autoStartType === 'daily' ? autoStartDailyTime : undefined,
     };
 
-    onSave(pid, hostname, hospitalCode, hospitalName, programPath, restartSchedule, autoStartSchedule);
+    onSave(pid, hostname, hospitalCode, hospitalName, programPath, restartSchedule, autoStartSchedule, companyName || undefined, installDate || undefined, warrantyExpiryDate || undefined);
   };
 
   return (
@@ -323,6 +344,59 @@ const EditProcessModal = ({
                 className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                 placeholder="เช่น โรงพยาบาลกรุงเทพ (optional)"
               />
+            </div>
+
+            {/* Company Name */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                <Building2 className="w-4 h-4 inline mr-1" />
+                Company Name
+              </label>
+              <input
+                type="text"
+                value={companyName}
+                onChange={(e) => setCompanyName(e.target.value)}
+                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                placeholder="e.g., Inter, AI"
+              />
+              {currentWindowInfo?.company && !currentCompanyName && (
+                <p className="mt-1 text-xs text-blue-500 dark:text-blue-400">
+                  จาก Window Info: {currentWindowInfo.company}
+                </p>
+              )}
+            </div>
+
+            {/* Install Date and Warranty Expiry */}
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  <Calendar className="w-4 h-4 inline mr-1" />
+                  วันที่ติดตั้ง Gateway
+                </label>
+                <input
+                  type="date"
+                  value={installDate}
+                  onChange={(e) => handleInstallDateChange(e.target.value)}
+                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  <Calendar className="w-4 h-4 inline mr-1" />
+                  วันที่หมดประกัน
+                </label>
+                <input
+                  type="date"
+                  value={warrantyExpiryDate}
+                  onChange={(e) => setWarrantyExpiryDate(e.target.value)}
+                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                />
+                {installDate && warrantyExpiryDate && (
+                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                    คำนวณจากวันติดตั้ง + 1 ปี (แก้ไขได้)
+                  </p>
+                )}
+              </div>
             </div>
 
             {/* Program Path */}

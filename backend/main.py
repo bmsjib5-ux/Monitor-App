@@ -245,7 +245,7 @@ def _load_process_metadata_local() -> dict:
         logger.error(f"Error loading local metadata: {e}")
     return {}
 
-def _save_process_metadata_local(process_name: str, hospital_code: str, hospital_name: str, hostname: str, program_path: str, window_title: str = None, window_info: dict = None):
+def _save_process_metadata_local(process_name: str, hospital_code: str, hospital_name: str, hostname: str, program_path: str, window_title: str = None, window_info: dict = None, company_name: str = None, install_date: str = None, warranty_expiry_date: str = None):
     """Save process metadata to local file"""
     try:
         metadata = _load_process_metadata_local()
@@ -259,6 +259,12 @@ def _save_process_metadata_local(process_name: str, hospital_code: str, hospital
             metadata[process_name]['window_title'] = window_title
         if window_info:
             metadata[process_name]['window_info'] = window_info
+        if company_name is not None:
+            metadata[process_name]['company_name'] = company_name
+        if install_date is not None:
+            metadata[process_name]['install_date'] = install_date
+        if warranty_expiry_date is not None:
+            metadata[process_name]['warranty_expiry_date'] = warranty_expiry_date
         metadata_file = _get_metadata_file_path()
         with open(metadata_file, 'w', encoding='utf-8') as f:
             json.dump(metadata, f, indent=2, ensure_ascii=False)
@@ -620,10 +626,16 @@ async def update_process_metadata(process_name: str, metadata: ProcessMetadataUp
                 monitor.monitored_processes[process_name]['window_title'] = window_title
             if window_info_dict:
                 monitor.monitored_processes[process_name]['window_info'] = window_info_dict
+            if metadata.company_name is not None:
+                monitor.monitored_processes[process_name]['company_name'] = metadata.company_name
+            if metadata.install_date is not None:
+                monitor.monitored_processes[process_name]['install_date'] = metadata.install_date
+            if metadata.warranty_expiry_date is not None:
+                monitor.monitored_processes[process_name]['warranty_expiry_date'] = metadata.warranty_expiry_date
             logger.info(f"Updated in-memory metadata for {process_name}: hospital={metadata.hospital_name}")
 
         # Save to local file (including window info)
-        _save_process_metadata_local(process_name, metadata.hospital_code, metadata.hospital_name, hostname, metadata.program_path, window_title, window_info_dict)
+        _save_process_metadata_local(process_name, metadata.hospital_code, metadata.hospital_name, hostname, metadata.program_path, window_title, window_info_dict, metadata.company_name, metadata.install_date, metadata.warranty_expiry_date)
 
         # Step 2: Try to save to Supabase (non-blocking, don't fail if error)
         supabase_error = None
@@ -638,7 +650,10 @@ async def update_process_metadata(process_name: str, metadata: ProcessMetadataUp
                 is_edit=metadata.is_edit or False,
                 window_title=window_title,
                 window_info=window_info_dict,
-                client_version=settings.app_version
+                client_version=settings.app_version,
+                company_name=metadata.company_name,
+                install_date=metadata.install_date,
+                warranty_expiry_date=metadata.warranty_expiry_date
             )
             logger.info(f"Saved to Supabase: {process_name} with client_version={settings.app_version}")
         except Exception as db_error:
@@ -1622,6 +1637,70 @@ async def delete_supabase_test_data():
 
     except Exception as e:
         logger.error(f"Supabase delete test data failed: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+# ============================================================
+# Admin: Update Process Metadata Directly in Supabase (Master Mode)
+# ============================================================
+
+@app.patch("/api/admin/processes/{process_name}/metadata")
+async def admin_update_process_metadata(process_name: str, metadata: ProcessMetadataUpdate):
+    """
+    Update process metadata directly in Supabase (for Master Mode admin use).
+    Does NOT require process to be locally monitored.
+    """
+    try:
+        if not settings.use_supabase:
+            raise HTTPException(status_code=400, detail="Supabase is not enabled")
+
+        from database_supabase import db as supabase_db
+
+        # Build filters to find the record
+        filters: dict = {"process_name": process_name}
+        if metadata.hospital_code:
+            filters["hospital_code"] = metadata.hospital_code
+        if metadata.pid:
+            filters["pid"] = metadata.pid
+        if metadata.hostname:
+            filters["hostname"] = metadata.hostname
+
+        # Check if record exists
+        existing = await supabase_db.select("process_history", filters=filters, limit=1)
+        if not existing:
+            raise HTTPException(status_code=404, detail=f"ไม่พบข้อมูล process '{process_name}' ใน Supabase")
+
+        record_id = existing[0].get("id")
+        if not record_id:
+            raise HTTPException(status_code=404, detail="ไม่พบ record id")
+
+        # Build update data
+        update_data: dict = {}
+        if metadata.hospital_name is not None:
+            update_data["hospital_name"] = metadata.hospital_name
+        if metadata.hospital_code is not None:
+            update_data["hospital_code"] = metadata.hospital_code
+        if metadata.program_path is not None:
+            update_data["program_path"] = metadata.program_path
+        if metadata.company_name is not None:
+            update_data["company_name"] = metadata.company_name
+        if metadata.install_date is not None:
+            update_data["install_date"] = metadata.install_date
+        if metadata.warranty_expiry_date is not None:
+            update_data["warranty_expiry_date"] = metadata.warranty_expiry_date
+
+        if not update_data:
+            return {"message": "ไม่มีข้อมูลที่ต้องอัพเดท"}
+
+        await supabase_db.update("process_history", filters={"id": record_id}, data=update_data)
+        logger.info(f"Admin updated process_history for {process_name}: {update_data}")
+
+        return {"message": f"อัพเดทข้อมูล '{process_name}' สำเร็จ", "updated": update_data}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Admin update process metadata failed: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
