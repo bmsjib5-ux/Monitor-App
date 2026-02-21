@@ -125,6 +125,9 @@ export interface ProcessHistory {
   bms_log_path: string | null;
   bms_hosxp_db_error: string | null;
   bms_gateway_db_error: string | null;
+  company_name: string | null;
+  install_date: string | null;
+  warranty_expiry_date: string | null;
 }
 
 export interface AlertRecord {
