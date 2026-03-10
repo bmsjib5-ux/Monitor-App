@@ -3,11 +3,19 @@
  *
  * ใช้สำหรับดึงข้อมูลจาก Supabase โดยตรงเมื่อรันบน GitHub Pages
  * เนื่องจาก GitHub Pages ไม่มี backend API
+ *
+ * รองรับ Supabase Realtime สำหรับ real-time updates
  */
+
+import { createClient, RealtimeChannel } from '@supabase/supabase-js';
 
 // Supabase configuration - Public anon key (read-only)
 const SUPABASE_URL = 'https://ktkklfpncuhvduxxumhb.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imt0a2tsZnBuY3VodmR1eHh1bWhiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjgxODg5NTQsImV4cCI6MjA4Mzc2NDk1NH0.zJDdchPJWwQoSFi2Q9pB72_TcvTfvuvz2pXECtM8NwA';
+
+// Official Supabase client with Realtime support
+export const supabaseRealtime = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+export type { RealtimeChannel };
 
 // Check if running on GitHub Pages
 export const isGitHubPages = (): boolean => {
@@ -288,11 +296,21 @@ export const supabaseApi = {
     }
   },
 
-  // Get all monitored processes (from process_history)
+  // Get all monitored processes (from process_history), deduplicated by (process_name + hospital_code)
   getMonitoredProcesses: async (): Promise<ProcessHistory[]> => {
-    return supabase.select<ProcessHistory>('process_history', {
-      order: 'hospital_name.asc,hostname.asc',
+    const raw = await supabase.select<ProcessHistory>('process_history', {
+      order: 'recorded_at.desc',
     });
+
+    // Dedup: keep only latest record per (process_name + hospital_code)
+    const seen = new Map<string, ProcessHistory>();
+    for (const item of raw) {
+      const key = `${(item.process_name || '').toLowerCase()}__${item.hospital_code || ''}`;
+      if (!seen.has(key)) {
+        seen.set(key, item);
+      }
+    }
+    return Array.from(seen.values());
   },
 
   // Get recent alerts

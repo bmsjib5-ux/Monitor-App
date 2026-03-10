@@ -4,7 +4,7 @@ import { supabaseApi, ProcessHistory, AlertRecord, getGitHubPagesUser, UserInfo 
 import PushNotificationToggle from './PushNotificationToggle';
 
 // App version
-const APP_VERSION = '4.3.0';
+const APP_VERSION = '4.4.0';
 
 type SortOption = 'hospital' | 'status' | 'cpu' | 'memory' | 'update';
 type ViewMode = 'list' | 'company';
@@ -60,22 +60,12 @@ function GitHubPagesDashboard({ onLogout }: GitHubPagesDashboardProps) {
     setLoading(true);
     setError(null);
     try {
-      const [rawProcs, alts] = await Promise.all([
+      const [procs, alts] = await Promise.all([
         supabaseApi.getMonitoredProcesses(),
         supabaseApi.getProcessAlerts(100),
       ]);
 
-      // Dedup by (process_name + hospital_code) keeping latest recorded_at
-      const deduped = new Map<string, ProcessHistory>();
-      for (const item of rawProcs) {
-        const key = `${(item.process_name || '').toLowerCase()}__${item.hospital_code || ''}`;
-        const existing = deduped.get(key);
-        if (!existing || new Date(item.recorded_at) > new Date(existing.recorded_at)) {
-          deduped.set(key, item);
-        }
-      }
-
-      setProcesses(Array.from(deduped.values()));
+      setProcesses(procs);
       setAlerts(alts);
       setLastUpdate(new Date());
     } catch (err: any) {

@@ -4,6 +4,7 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Responsi
 import { ProcessInfo, Alert, RestartSchedule, AutoStartSchedule } from '../types';
 import { api } from '../api';
 import { getGitHubPagesUser, UserInfo } from '../supabaseClient';
+import { useSupabaseRealtime } from '../hooks/useSupabaseRealtime';
 import ToastNotification from './ToastNotification';
 import AlertPanel from './AlertPanel';
 import LineSettingsModal from './LineSettingsModal';
@@ -460,26 +461,13 @@ const MasterDashboard = ({ onSwitchToClient, onLogout }: MasterDashboardProps) =
       // Load alerts alongside process data
       loadAlerts();
 
-      // Try to get data from Supabase first
-      // process_history now contains hospital_code and hospital_name directly
-      const response = await fetch('http://localhost:3001/api/supabase/query/process_history?limit=100');
+      // Get deduplicated process data from backend (latest per process_name + hospital_code)
+      const response = await fetch('http://localhost:3001/api/supabase/process_history/latest');
       if (response.ok) {
         const result = await response.json();
         if (result.data && result.data.length > 0) {
-          // Deduplicate: keep only the latest record per (process_name + hospital_code)
-          // This handles cases where the same process has multiple records (e.g. after restart with new PID)
-          const deduped = new Map<string, any>();
-          for (const item of result.data) {
-            const key = `${(item.process_name || '').toLowerCase()}__${item.hospital_code || ''}`;
-            const existing = deduped.get(key);
-            if (!existing || new Date(item.recorded_at) > new Date(existing.recorded_at)) {
-              deduped.set(key, item);
-            }
-          }
-
           // Transform Supabase data to ProcessInfo format
-          // hospital_code is now stored directly in process_history
-          const processData: ProcessInfo[] = Array.from(deduped.values()).map((item: any) => ({
+          const processData: ProcessInfo[] = result.data.map((item: any) => ({
             name: item.process_name,
             pid: item.pid,
             status: item.status,
@@ -562,11 +550,21 @@ const MasterDashboard = ({ onSwitchToClient, onLogout }: MasterDashboardProps) =
     }
   };
 
-  useEffect(() => {
-    loadData();
-    const interval = setInterval(loadData, 10000);
-    return () => clearInterval(interval);
-  }, []);
+  // Supabase Realtime: subscribe to process_history changes
+  useSupabaseRealtime({
+    table: 'process_history',
+    onInitialFetch: async () => { await loadData(); },
+    onDataChange: () => { loadData(); },
+    fallbackInterval: 30000,
+  });
+
+  // Supabase Realtime: subscribe to alerts changes
+  useSupabaseRealtime({
+    table: 'alerts',
+    onInitialFetch: async () => { await loadAlerts(); },
+    onDataChange: () => { loadAlerts(); },
+    fallbackInterval: 30000,
+  });
 
   const handleRefresh = () => {
     setRefreshing(true);

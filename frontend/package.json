@@ -1,11 +1,12 @@
 {
   "name": "monitor-app",
-  "version": "4.3.0",
+  "version": "4.4.0",
   "private": true,
   "description": "Process Monitor Application - Desktop App",
   "author": "MonitorApp",
   "main": "electron/main.js",
   "dependencies": {
+    "@supabase/supabase-js": "^2.99.0",
     "@tanstack/react-table": "^8.10.7",
     "axios": "^1.6.2",
     "date-fns": "^2.30.0",

@@ -48,9 +48,19 @@ const AdminDashboard = ({ onClose }: AdminDashboardProps) => {
 
   useEffect(() => {
     loadData();
-    // Auto refresh every 10 seconds
-    const interval = setInterval(loadData, 10000);
-    return () => clearInterval(interval);
+    const interval = setInterval(loadData, 15000);
+
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        loadData();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
   }, []);
 
   const handleRefresh = () => {

@@ -1534,6 +1534,43 @@ async def test_supabase_connection():
             "timestamp": get_thai_datetime().strftime("%Y-%m-%d %H:%M:%S")
         }
 
+@app.get("/api/supabase/process_history/latest")
+async def query_process_history_latest():
+    """Get latest process_history record per (process_name, hospital_code) — deduped at backend"""
+    try:
+        if not settings.use_supabase:
+            raise HTTPException(status_code=400, detail="Supabase is not enabled")
+
+        from database_supabase import db as supabase_db
+
+        # Fetch recent records ordered by recorded_at desc
+        result = await supabase_db.select(
+            "process_history",
+            limit=500,
+            order_by="recorded_at.desc"
+        )
+
+        if not result:
+            return {"count": 0, "data": []}
+
+        # Dedup: keep only latest per (process_name + hospital_code)
+        seen: dict = {}
+        for item in result:
+            key = f"{(item.get('process_name') or '').lower()}__{item.get('hospital_code') or ''}"
+            if key not in seen:
+                seen[key] = item
+
+        deduped = list(seen.values())
+        return {
+            "count": len(deduped),
+            "data": deduped
+        }
+
+    except Exception as e:
+        logger.error(f"Supabase process_history latest query failed: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
 @app.get("/api/supabase/query/{table_name}")
 async def query_supabase_table(table_name: str, limit: int = 10):
     """Query a Supabase table"""

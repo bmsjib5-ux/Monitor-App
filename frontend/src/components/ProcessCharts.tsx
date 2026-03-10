@@ -23,8 +23,19 @@ const ProcessCharts = ({ processName }: ProcessChartsProps) => {
 
   useEffect(() => {
     loadHistory();
-    const interval = setInterval(loadHistory, 2000);
-    return () => clearInterval(interval);
+    const interval = setInterval(loadHistory, 10000);
+
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        loadHistory();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
   }, [processName]);
 
   const loadHistory = async () => {
