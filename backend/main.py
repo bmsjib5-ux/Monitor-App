@@ -1535,17 +1535,26 @@ async def test_supabase_connection():
         }
 
 @app.get("/api/supabase/process_history/latest")
-async def query_process_history_latest():
-    """Get latest process_history record per (process_name, hospital_code) — deduped at backend"""
+async def query_process_history_latest(hostname: str = None, hospital_code: str = None):
+    """Get latest process_history record per (process_name, hospital_code) — deduped at backend.
+    Optional filters: hostname and/or hospital_code to restrict results to a single machine."""
     try:
         if not settings.use_supabase:
             raise HTTPException(status_code=400, detail="Supabase is not enabled")
 
         from database_supabase import db as supabase_db
 
+        # Build filters for server-side filtering
+        filters = {}
+        if hostname:
+            filters["hostname"] = hostname
+        if hospital_code:
+            filters["hospital_code"] = hospital_code
+
         # Fetch recent records ordered by recorded_at desc
         result = await supabase_db.select(
             "process_history",
+            filters=filters if filters else None,
             limit=500,
             order_by="recorded_at.desc"
         )

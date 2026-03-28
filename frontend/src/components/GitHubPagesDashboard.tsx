@@ -4,7 +4,7 @@ import { supabaseApi, ProcessHistory, AlertRecord, getGitHubPagesUser, UserInfo 
 import PushNotificationToggle from './PushNotificationToggle';
 
 // App version
-const APP_VERSION = '4.4.0';
+const APP_VERSION = '4.5.0';
 
 type SortOption = 'hospital' | 'status' | 'cpu' | 'memory' | 'update';
 type ViewMode = 'list' | 'company';
@@ -31,7 +31,7 @@ interface GitHubPagesDashboardProps {
 }
 
 // Offline detection threshold - same as MasterDashboard
-const OFFLINE_THRESHOLD_MS = 60 * 1000; // 60 seconds
+const OFFLINE_THRESHOLD_MS = 90 * 1000; // 90 seconds
 
 // Warranty warning threshold
 const WARRANTY_WARNING_DAYS = 90;

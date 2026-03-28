@@ -742,8 +742,8 @@ const MasterDashboard = ({ onSwitchToClient, onLogout }: MasterDashboardProps) =
   }, [processes]);
 
   // Offline detection: check if recorded_at is older than threshold
-  // Threshold = 60s: backend writes every ~5s, frontend polls every 10s → worst case ~15s latency, buffer = 45s
-  const OFFLINE_THRESHOLD_MS = 60 * 1000;
+  // Threshold = 90s: backend writes every ~60s (30s interval × 2 save rounds), buffer = 30s
+  const OFFLINE_THRESHOLD_MS = 90 * 1000;
 
   const isProcessOffline = useCallback((recordedAt?: string): boolean => {
     if (!recordedAt) return true; // No recorded_at = never updated = treat as offline

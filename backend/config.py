@@ -12,14 +12,14 @@ _ENV_FILE_PATH = str(_env_file) if _env_file.exists() else ".env"
 class Settings(BaseSettings):
     # Application settings
     app_name: str = "Windows Application Monitor"
-    app_version: str = "4.4.0"
+    app_version: str = "4.5.0"
 
     # Server settings
     host: str = "0.0.0.0"
     port: int = 3001
 
     # Monitoring settings
-    update_interval: int = 2  # seconds
+    update_interval: int = 30  # seconds
     history_length: int = 60  # keep last 60 data points
 
     # Resource thresholds

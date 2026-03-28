@@ -236,30 +236,24 @@ function ClientDashboard({ onSwitchToMaster }: ClientDashboardProps) {
         console.error('Error getting hostname:', e);
       }
 
+      // Get hospital_code from license for strict filtering
+      const license = getLicenseFromStorage();
+      const licenseHospitalCode = license?.hospitalCode || '';
+
       // Try to load from Supabase first (to get processes even if not running)
+      // Use deduped endpoint with hostname + hospital_code filters (server-side)
       let loadedSupabaseProcesses: ProcessInfo[] = [];
       try {
-        const response = await fetch('http://localhost:3001/api/supabase/query/process_history?limit=100');
+        const params = new URLSearchParams();
+        if (currentHostname) params.set('hostname', currentHostname);
+        if (licenseHospitalCode) params.set('hospital_code', licenseHospitalCode);
+        const url = `http://localhost:3001/api/supabase/process_history/latest?${params.toString()}`;
+        const response = await fetch(url);
         if (response.ok) {
           const result = await response.json();
           if (result.data && result.data.length > 0) {
-            // Filter by current hostname
-            const filteredData = result.data.filter((item: any) =>
-              !currentHostname || item.hostname === currentHostname
-            );
-
-            // Deduplicate: keep only the latest record per process_name (based on recorded_at)
-            const processMap = new Map<string, any>();
-            for (const item of filteredData) {
-              const key = item.process_name?.toLowerCase() || '';
-              const existing = processMap.get(key);
-              if (!existing || new Date(item.recorded_at) > new Date(existing.recorded_at)) {
-                processMap.set(key, item);
-              }
-            }
-
-            // Transform to ProcessInfo
-            loadedSupabaseProcesses = Array.from(processMap.values()).map((item: any) => ({
+            // Transform to ProcessInfo (already deduped + filtered by backend)
+            loadedSupabaseProcesses = result.data.map((item: any) => ({
               name: item.process_name,
               pid: item.pid,
               status: item.status || 'stopped',

@@ -1063,20 +1063,4 @@ class ProcessMonitor:
         self.alerts.append(alert)
         logger.warning(f"BMS Alert: [{alert_type}] {process_name} - {message}")
 
-        # Send LINE notification for disconnect alerts
-        if 'DISCONNECTED' in alert_type:
-            line_service = get_line_notify_service()
-            if line_service:
-                try:
-                    notification_msg = f"[{alert_type}] {process_name}"
-                    if hospital_name:
-                        notification_msg += f" ({hospital_name})"
-                    notification_msg += f"\n{message}"
-                    if db_host:
-                        notification_msg += f"\nHost: {db_host}"
-
-                    send_line_notification_async(
-                        line_service.send_alert(alert_type, notification_msg)
-                    )
-                except Exception as e:
-                    logger.error(f"Failed to send LINE notification for BMS alert: {e}")
+        # LINE notifications disabled for BMS alerts — only PROCESS_STOPPED/STARTED send LINE

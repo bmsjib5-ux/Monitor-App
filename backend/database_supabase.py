@@ -567,22 +567,24 @@ async def save_alert(alert_data: Dict[str, Any]) -> None:
         else:
             raise
 
-    # Send push notification (async, don't block on failure)
-    try:
-        from push_notifications import get_push_service
-        push_svc = get_push_service()
-        if push_svc:
-            await push_svc.send_alert_notification(
-                alert_type=alert_data.get('type', 'ALERT'),
-                process_name=alert_data.get('process_name', 'Unknown'),
-                message=alert_data.get('message', ''),
-                hospital_name=alert_data.get('hospital_name'),
-                hospital_code=alert_data.get('hospital_code'),
-                hostname=alert_data.get('hostname'),
-                alert_id=alert_id
-            )
-    except Exception as e:
-        logger.warning(f"Failed to send push notification: {e}")
+    # Send push notification only for PROCESS_STOPPED and PROCESS_STARTED
+    alert_type = alert_data.get('type', 'ALERT')
+    if alert_type in ('PROCESS_STOPPED', 'PROCESS_STARTED'):
+        try:
+            from push_notifications import get_push_service
+            push_svc = get_push_service()
+            if push_svc:
+                await push_svc.send_alert_notification(
+                    alert_type=alert_type,
+                    process_name=alert_data.get('process_name', 'Unknown'),
+                    message=alert_data.get('message', ''),
+                    hospital_name=alert_data.get('hospital_name'),
+                    hospital_code=alert_data.get('hospital_code'),
+                    hostname=alert_data.get('hostname'),
+                    alert_id=alert_id
+                )
+        except Exception as e:
+            logger.warning(f"Failed to send push notification: {e}")
 
 
 async def get_process_history(process_name: str, limit: int = 60) -> List[Dict[str, Any]]:
