@@ -421,25 +421,57 @@ const MasterDashboard = ({ onSwitchToClient, onLogout }: MasterDashboardProps) =
     api.getStatus().then(s => setAppVersion(s.version)).catch(() => {});
   }, []);
 
+  // Build lookup map: hostname → { hospital_code, hospital_name } from process_history
+  const hospitalLookup = useMemo(() => {
+    const map = new Map<string, { hospital_code: string; hospital_name: string }>();
+    processes.forEach(p => {
+      if (p.hostname && p.hospital_name) {
+        map.set(p.hostname.toLowerCase(), {
+          hospital_code: p.hospital_code || '',
+          hospital_name: p.hospital_name
+        });
+      }
+    });
+    return map;
+  }, [processes]);
+
   // Load alerts from Supabase
   const loadAlerts = async () => {
     try {
-      // Fetch recent alerts from Supabase (last 24 hours)
-      const response = await fetch('http://localhost:3001/api/supabase/query/alerts?limit=50');
+      // Fetch today's PROCESS_STOPPED/STARTED alerts only
+      const response = await fetch('http://localhost:3001/api/supabase/alerts/today?limit=50');
       if (response.ok) {
         const result = await response.json();
         if (result.data && result.data.length > 0) {
-          const alertsData: Alert[] = result.data.map((item: any) => ({
-            timestamp: item.timestamp || item.created_at,
-            process_name: item.process_name,
-            alert_type: item.alert_type,
-            message: item.message,
-            value: item.value || 0,
-            threshold: item.threshold || 0,
-            hospital_code: item.hospital_code || null,
-            hospital_name: item.hospital_name || null,
-            hostname: item.hostname || null
-          }));
+          const alertsData: Alert[] = result.data.map((item: any) => {
+            // Fill missing hospital info from process_history via hostname lookup
+            let hospitalCode = item.hospital_code || null;
+            let hospitalName = item.hospital_name || null;
+            if (!hospitalName && item.hostname) {
+              const lookup = hospitalLookup.get(item.hostname.toLowerCase());
+              if (lookup) {
+                hospitalCode = hospitalCode || lookup.hospital_code;
+                hospitalName = lookup.hospital_name;
+              }
+            }
+            return {
+              // Append 'Z' to treat as UTC if no timezone info (Supabase returns without tz)
+              timestamp: (() => {
+                const ts = item.timestamp || item.created_at || '';
+                return ts && !ts.includes('+') && !ts.endsWith('Z') ? ts + 'Z' : ts;
+              })(),
+              process_name: item.process_name,
+              alert_type: item.alert_type,
+              message: item.message,
+              value: item.value || 0,
+              threshold: item.threshold || 0,
+              hospital_code: hospitalCode,
+              hospital_name: hospitalName,
+              hostname: item.hostname || null
+            };
+          });
+          // Sort by timestamp descending (newest first)
+          alertsData.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
           setAlerts(alertsData);
         }
       }
@@ -736,6 +768,12 @@ const MasterDashboard = ({ onSwitchToClient, onLogout }: MasterDashboardProps) =
     return (Date.now() - new Date(recordedAt).getTime()) > OFFLINE_THRESHOLD_MS;
   }, []);
 
+  // Helper: check if process GW is stopped (only 'stopped' counts, not 'unknown' or null)
+  const isGWStopped = (p: ProcessInfo): boolean => {
+    if (!p.bms_status) return false;
+    return p.bms_status.gateway_status === 'stopped';
+  };
+
   // Filter processes
   const filteredProcesses = useMemo(() => {
     return processes.filter(p => {
@@ -1007,33 +1045,28 @@ const MasterDashboard = ({ onSwitchToClient, onLogout }: MasterDashboardProps) =
     return procs.length > 0 && procs.every(p => isProcessOffline(p.recorded_at));
   }, [isProcessOffline]);
 
-  // Helper: check if process GW is stopped (only 'stopped' counts, not 'unknown' or null)
-  const isGWStopped = (p: ProcessInfo): boolean => {
-    if (!p.bms_status) return false;
-    return p.bms_status.gateway_status === 'stopped';
-  };
-
-  // Statistics — "หยุดทำงาน" based on GW status only
+  // Statistics — "หยุดทำงาน" based on GW status, "ออฟไลน์" = process offline
   const stats = useMemo(() => {
-    const running = filteredProcesses.filter(p => !isProcessOffline(p.recorded_at) && !isGWStopped(p)).length;
-    const stopped = filteredProcesses.filter(p => !isProcessOffline(p.recorded_at) && isGWStopped(p)).length;
+    const running = filteredProcesses.filter(p => !isGWStopped(p)).length;
+    const stopped = filteredProcesses.filter(p => isGWStopped(p)).length;
+    // running + stopped = filteredProcesses.length
     const totalCpu = filteredProcesses.reduce((sum, p) => sum + p.cpu_percent, 0);
     const totalMemory = filteredProcesses.reduce((sum, p) => sum + p.memory_mb, 0);
     const hospitalCount = new Set(filteredProcesses.map(p => p.hospital_code).filter(Boolean)).size;
 
-    // Count offline hospitals
+    // Count offline hospitals (all processes in hospital are offline)
     const hospitalMap = new Map<string, ProcessInfo[]>();
     filteredProcesses.forEach(p => {
       const code = p.hospital_code || 'unknown';
       if (!hospitalMap.has(code)) hospitalMap.set(code, []);
       hospitalMap.get(code)!.push(p);
     });
-    let offlineCount = 0;
+    let offlineHospitalCount = 0;
     hospitalMap.forEach((procs) => {
-      if (procs.every(p => isProcessOffline(p.recorded_at))) offlineCount++;
+      if (procs.every(p => isProcessOffline(p.recorded_at))) offlineHospitalCount++;
     });
 
-    return { running, stopped, totalCpu, totalMemory, hospitalCount, offlineCount };
+    return { running, stopped, totalCpu, totalMemory, hospitalCount, offlineCount: offlineHospitalCount };
   }, [filteredProcesses, isProcessOffline]);
 
   const toggleHospital = (code: string) => {

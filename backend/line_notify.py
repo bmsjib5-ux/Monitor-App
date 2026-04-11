@@ -116,14 +116,16 @@ class LineOAService:
                         "text": detail["label"],
                         "size": "sm",
                         "color": "#555555",
-                        "flex": 0
+                        "flex": 0,
+                        "wrap": True
                     },
                     {
                         "type": "text",
                         "text": detail["value"],
                         "size": "sm",
                         "color": "#111111",
-                        "align": "end"
+                        "align": "end",
+                        "wrap": True
                     }
                 ]
             })
@@ -145,9 +147,10 @@ class LineOAService:
                 "type": "text",
                 "text": f"🏥 {hospital_name}",
                 "color": "#ffffff",
-                "size": "lg",
+                "size": "sm",
                 "weight": "bold",
-                "margin": "sm"
+                "margin": "sm",
+                "wrap": True
             })
 
         return {

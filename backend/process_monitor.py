@@ -273,10 +273,16 @@ class ProcessMonitor:
                     if proc.info['name'].lower() == process_name.lower():
                         pid = proc.info['pid']
                         if pid not in self.monitored_processes.values():
+                            # Preserve existing metadata (hospital_code, hospital_name, hostname, etc.)
+                            old_data = self.monitored_processes.get(process_name, {})
                             self.monitored_processes[process_name] = {
                                 'pid': pid,
                                 'process': proc,
-                                'create_time': proc.create_time()
+                                'create_time': proc.create_time(),
+                                'hospital_code': old_data.get('hospital_code'),
+                                'hospital_name': old_data.get('hospital_name'),
+                                'hostname': old_data.get('hostname'),
+                                'program_path': old_data.get('program_path'),
                             }
                             found = True
                             logger.info(f"Added process {process_name} (PID: {pid}) to monitoring")

@@ -1,6 +1,6 @@
 import { X, AlertTriangle, XCircle, CheckCircle, Building2, Server, CheckCheck, Eye } from 'lucide-react';
 import { Alert } from '../types';
-import { format } from 'date-fns';
+
 
 interface AlertPanelProps {
   alerts: Alert[];
@@ -57,7 +57,11 @@ const AlertPanel = ({ alerts, onClose, onMarkAsRead, onMarkAllAsRead, isAlertRea
 
   const formatTimestamp = (timestamp: string) => {
     try {
-      return format(new Date(timestamp), 'MMM dd, HH:mm:ss');
+      return new Date(timestamp).toLocaleString('th-TH', {
+        day: '2-digit', month: '2-digit', year: 'numeric',
+        hour: '2-digit', minute: '2-digit', second: '2-digit',
+        hour12: false
+      });
     } catch {
       return timestamp;
     }

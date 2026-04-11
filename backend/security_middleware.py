@@ -78,7 +78,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             "script-src 'self' 'unsafe-inline'; "
             "style-src 'self' 'unsafe-inline'; "
             "img-src 'self' data:; "
-            "connect-src 'self' http://localhost:3001 ws://localhost:3001 wss://localhost:3001 https://*.supabase.co; "
+            "connect-src 'self' http://localhost:3001 ws://localhost:3001 wss://localhost:3001 https://*.supabase.co wss://*.supabase.co; "
             "font-src 'self'; "
             "frame-ancestors 'none'"
         )

@@ -394,6 +394,73 @@ async def broadcast_updates():
             logger.error(f"Error in broadcast_updates: {e}")
             await asyncio.sleep(1)
 
+async def send_unsent_line_alerts_loop():
+    """Background task: send unsent PROCESS_STOPPED/STARTED alerts via LINE every 60s.
+    Only sends alerts that match this machine's hostname + monitored processes."""
+    current_hostname = socket_module.gethostname().lower()
+
+    while True:
+        try:
+            await asyncio.sleep(60)
+            if not line_notify_service.is_configured():
+                continue
+            alerts = await get_unsent_process_alerts(20)
+            if not alerts:
+                continue
+
+            # Get list of process names this machine monitors
+            local_processes = {name.lower() for name in monitor.monitored_processes.keys()}
+            # Get hospital_codes from license (monitored_processes metadata)
+            local_hospital_codes = set()
+            # Build hostname → hospital_name lookup from monitored_processes
+            hospital_lookup: dict = {}
+            for proc_data in monitor.monitored_processes.values():
+                hc = proc_data.get('hospital_code')
+                if hc:
+                    local_hospital_codes.add(hc)
+                h = (proc_data.get('hostname') or '').lower()
+                if h and proc_data.get('hospital_name'):
+                    hospital_lookup[h] = proc_data.get('hospital_name')
+
+            for alert in alerts:
+                try:
+                    alert_hostname = (alert.get("hostname") or "").lower()
+                    alert_process = (alert.get("process_name") or "").lower()
+                    alert_hospital = alert.get("hospital_code") or ""
+
+                    # Only send if alert matches this machine:
+                    # 1. hostname matches, OR
+                    # 2. hospital_code matches + process_name matches
+                    is_my_alert = False
+                    if alert_hostname and alert_hostname == current_hostname:
+                        is_my_alert = True
+                    elif alert_hospital and alert_hospital in local_hospital_codes and alert_process in local_processes:
+                        is_my_alert = True
+
+                    if not is_my_alert:
+                        continue
+
+                    # Enrich hospital_name if missing
+                    hospital_name = alert.get("hospital_name")
+                    if not hospital_name and alert_hostname:
+                        hospital_name = hospital_lookup.get(alert_hostname)
+
+                    success = await line_notify_service.send_alert(
+                        process_name=alert.get("process_name", "Unknown"),
+                        alert_type=alert.get("alert_type", "UNKNOWN"),
+                        message=alert.get("message", ""),
+                        hostname=alert.get("hostname"),
+                        hospital_name=hospital_name
+                    )
+                    if success and alert.get("id"):
+                        await mark_alert_as_sent(alert["id"])
+                        logger.info(f"LINE auto-sent: {alert.get('alert_type')} - {alert.get('process_name')} ({alert_hostname})")
+                except Exception as e:
+                    logger.error(f"LINE auto-send error for alert {alert.get('id')}: {e}")
+        except Exception as e:
+            logger.error(f"LINE auto-send loop error: {e}")
+            await asyncio.sleep(10)
+
 @app.on_event("startup")
 async def startup_event():
     """Start background tasks on application startup"""
@@ -450,6 +517,7 @@ async def startup_event():
         logger.info("Push notifications disabled (pywebpush not installed)")
 
     asyncio.create_task(broadcast_updates())
+    asyncio.create_task(send_unsent_line_alerts_loop())
     logger.info("Application started")
 
 @app.on_event("shutdown")
@@ -1580,6 +1648,73 @@ async def query_process_history_latest(hostname: str = None, hospital_code: str 
         logger.error(f"Supabase process_history latest query failed: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
+
+@app.get("/api/supabase/alerts/today")
+async def query_alerts_today(limit: int = 50):
+    """Get today's alerts (PROCESS_STOPPED/STARTED only) ordered by newest first"""
+    try:
+        if not settings.use_supabase:
+            raise HTTPException(status_code=400, detail="Supabase is not enabled")
+
+        from database_supabase import db as supabase_db
+        from datetime import datetime, timedelta
+
+        # Get 30 minutes ago in UTC
+        since_utc = datetime.utcnow() - timedelta(minutes=30)
+        today_iso = since_utc.strftime("%Y-%m-%dT%H:%M:%S")
+
+        result = await supabase_db.select(
+            "alerts",
+            filters={
+                "created_at": f"gte.{today_iso}",
+                "alert_type": "in.(PROCESS_STOPPED,PROCESS_STARTED)"
+            },
+            limit=limit,
+            order_by="created_at.desc"
+        )
+
+        if not result:
+            return {"count": 0, "data": [], "since": today_iso}
+
+        # Fill missing hospital_name from process_history (join by hostname)
+        hostnames_missing = {
+            a.get("hostname") for a in result
+            if not a.get("hospital_name") and a.get("hostname")
+        }
+        hospital_map: dict = {}
+        if hostnames_missing:
+            # Get latest process_history per hostname for hospital lookup
+            ph = await supabase_db.select(
+                "process_history",
+                limit=500,
+                order_by="recorded_at.desc"
+            )
+            if ph:
+                for item in ph:
+                    h = item.get("hostname")
+                    if h and h not in hospital_map and item.get("hospital_name"):
+                        hospital_map[h] = {
+                            "hospital_code": item.get("hospital_code"),
+                            "hospital_name": item.get("hospital_name")
+                        }
+
+        # Enrich alerts with hospital info
+        for alert in result:
+            if not alert.get("hospital_name") and alert.get("hostname"):
+                lookup = hospital_map.get(alert["hostname"])
+                if lookup:
+                    alert["hospital_name"] = lookup["hospital_name"]
+                    alert["hospital_code"] = alert.get("hospital_code") or lookup["hospital_code"]
+
+        return {
+            "count": len(result),
+            "data": result,
+            "since": today_iso
+        }
+
+    except Exception as e:
+        logger.error(f"Supabase alerts today query failed: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.get("/api/supabase/query/{table_name}")
 async def query_supabase_table(table_name: str, limit: int = 10):

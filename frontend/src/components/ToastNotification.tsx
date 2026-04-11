@@ -79,13 +79,18 @@ const ToastNotification = ({ alerts, onDismiss }: ToastNotificationProps) => {
     seenAlertsRef.current = currentSeenAlerts;
 
     // Filter for new process alerts that haven't been seen or processed
+    // Only show alerts from today to avoid spam on first load
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const todayMs = today.getTime();
     const newAlerts = alerts.filter(alert => {
       const alertKey = getAlertKey(alert);
       const isProcessAlert = ['process_stopped', 'process_started'].includes(alert.alert_type.toLowerCase());
       const isNotSeen = !currentSeenAlerts.has(alertKey);
       const isNotProcessed = !processedAlertsRef.current.has(alertKey);
+      const isToday = new Date(alert.timestamp).getTime() >= todayMs;
 
-      return isProcessAlert && isNotSeen && isNotProcessed;
+      return isProcessAlert && isNotSeen && isNotProcessed && isToday;
     });
 
     if (newAlerts.length > 0) {
@@ -180,7 +185,12 @@ const ToastNotification = ({ alerts, onDismiss }: ToastNotificationProps) => {
                   ? 'โปรแกรมหยุดทำงาน!'
                   : 'โปรแกรมเริ่มทำงาน'}
               </h4>
-              <p className="text-sm opacity-90 mt-1">
+              {toast.alert.hospital_name && (
+                <p className="text-sm font-medium opacity-95 mt-0.5">
+                  {toast.alert.hospital_name}
+                </p>
+              )}
+              <p className="text-sm opacity-90 mt-0.5">
                 {toast.alert.process_name}
               </p>
               <p className="text-xs opacity-75 mt-1">
