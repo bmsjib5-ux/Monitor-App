@@ -72,12 +72,13 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         # Permissions policy - restrict sensitive features
         response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
         # Content Security Policy
+        # Allow connect-src to localhost:3001 from any origin (Electron file:// needs this)
         response.headers["Content-Security-Policy"] = (
             "default-src 'self'; "
             "script-src 'self' 'unsafe-inline'; "
             "style-src 'self' 'unsafe-inline'; "
             "img-src 'self' data:; "
-            "connect-src 'self' ws://localhost:3001 wss://localhost:3001; "
+            "connect-src 'self' http://localhost:3001 ws://localhost:3001 wss://localhost:3001 https://*.supabase.co; "
             "font-src 'self'; "
             "frame-ancestors 'none'"
         )

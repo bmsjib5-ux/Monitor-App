@@ -443,15 +443,8 @@ const MasterDashboard = ({ onSwitchToClient, onLogout }: MasterDashboardProps) =
           setAlerts(alertsData);
         }
       }
-    } catch (error) {
-      console.error('Error loading alerts from Supabase:', error);
-      // Try to get from local API
-      try {
-        const alertsData = await api.getAlerts();
-        setAlerts(alertsData);
-      } catch (e) {
-        console.error('Error loading local alerts:', e);
-      }
+    } catch {
+      // Supabase alerts failed — silent fallback, will retry on next poll
     }
   };
 
@@ -511,15 +504,8 @@ const MasterDashboard = ({ onSwitchToClient, onLogout }: MasterDashboardProps) =
           setProcesses(processData);
         }
       }
-    } catch (error) {
-      console.error('Error loading from Supabase:', error);
-      // Fallback to local API
-      try {
-        const data = await api.getProcesses();
-        setProcesses(data);
-      } catch (e) {
-        console.error('Error loading local data:', e);
-      }
+    } catch {
+      // Supabase failed — silent, will retry on next poll
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -781,9 +767,10 @@ const MasterDashboard = ({ onSwitchToClient, onLogout }: MasterDashboardProps) =
         if (filterStatus === 'offline') {
           if (!offline) return false;
         } else if (filterStatus === 'running') {
-          if (p.status !== 'running' || offline) return false;
+          if (offline || isGWStopped(p)) return false;
         } else if (filterStatus === 'stopped') {
-          if (p.status === 'running' && !offline) return false;
+          // "หยุดทำงาน" = GW stopped only (not offline)
+          if (offline || !isGWStopped(p)) return false;
         }
       }
 
@@ -919,10 +906,10 @@ const MasterDashboard = ({ onSwitchToClient, onLogout }: MasterDashboardProps) =
       group.processes.push(p);
       group.totalCpu += p.cpu_percent;
       group.totalMemory += p.memory_mb;
-      if (p.status === 'running') {
-        group.runningCount++;
-      } else {
+      if (isGWStopped(p)) {
         group.stoppedCount++;
+      } else {
+        group.runningCount++;
       }
       // เก็บ version ล่าสุดของแต่ละ รพ.
       if (p.client_version && !group.clientVersion) {
@@ -969,7 +956,7 @@ const MasterDashboard = ({ onSwitchToClient, onLogout }: MasterDashboardProps) =
           hg.processes.push(p);
           hg.totalCpu += p.cpu_percent;
           hg.totalMemory += p.memory_mb;
-          if (p.status === 'running') hg.runningCount++; else hg.stoppedCount++;
+          if (isGWStopped(p)) hg.stoppedCount++; else hg.runningCount++;
         });
 
         const hospitals = Array.from(hospitalMap.values()).sort((a, b) =>
@@ -1020,11 +1007,16 @@ const MasterDashboard = ({ onSwitchToClient, onLogout }: MasterDashboardProps) =
     return procs.length > 0 && procs.every(p => isProcessOffline(p.recorded_at));
   }, [isProcessOffline]);
 
-  // Statistics
+  // Helper: check if process GW is stopped (only 'stopped' counts, not 'unknown' or null)
+  const isGWStopped = (p: ProcessInfo): boolean => {
+    if (!p.bms_status) return false;
+    return p.bms_status.gateway_status === 'stopped';
+  };
+
+  // Statistics — "หยุดทำงาน" based on GW status only
   const stats = useMemo(() => {
-    // Offline processes count as stopped (not running)
-    const running = filteredProcesses.filter(p => p.status === 'running' && !isProcessOffline(p.recorded_at)).length;
-    const stopped = filteredProcesses.filter(p => p.status !== 'running' || isProcessOffline(p.recorded_at)).length;
+    const running = filteredProcesses.filter(p => !isProcessOffline(p.recorded_at) && !isGWStopped(p)).length;
+    const stopped = filteredProcesses.filter(p => !isProcessOffline(p.recorded_at) && isGWStopped(p)).length;
     const totalCpu = filteredProcesses.reduce((sum, p) => sum + p.cpu_percent, 0);
     const totalMemory = filteredProcesses.reduce((sum, p) => sum + p.memory_mb, 0);
     const hospitalCount = new Set(filteredProcesses.map(p => p.hospital_code).filter(Boolean)).size;
@@ -1216,10 +1208,15 @@ const MasterDashboard = ({ onSwitchToClient, onLogout }: MasterDashboardProps) =
                 <WifiOff className="w-3 h-3" />
                 ออฟไลน์
               </span>
+            ) : isGWStopped(process) ? (
+              <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400">
+                <XCircle className="w-3 h-3" />
+                หยุด
+              </span>
             ) : (
               <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(process.status)}`}>
                 {getStatusIcon(process.status)}
-                {process.status === 'running' ? 'ทำงาน' : 'หยุด'}
+                ทำงาน
               </span>
             )}
           </td>

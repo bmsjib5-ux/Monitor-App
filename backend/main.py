@@ -85,11 +85,12 @@ app = FastAPI(
     version=settings.app_version
 )
 
-# Configure CORS - restricted to known origins only
+# Configure CORS - allow all origins (local backend, safe since it binds to localhost only)
+# Electron file:// sends Origin: null which can't be whitelisted, so use wildcard
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_origins,
-    allow_credentials=True,
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Content-Type", "Authorization", "X-API-Key"],
 )

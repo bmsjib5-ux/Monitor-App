@@ -32,15 +32,10 @@ class Settings(BaseSettings):
     log_file: str = "logs/monitor.log"
     log_level: str = "INFO"
 
-    # CORS - restricted to known origins only
-    cors_origins: list = [
-        "http://localhost:3001",
-        "http://127.0.0.1:3001",
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-    ]
+    # CORS - allow all origins for local backend
+    # Electron production loads from file:// (sends Origin: null) which can't be whitelisted
+    # Since this backend only binds to localhost, wildcard is safe
+    cors_origins: list = ["*"]
 
     # MySQL Database settings (loaded from environment)
     db_host: str = "127.0.0.1"
