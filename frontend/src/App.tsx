@@ -6,6 +6,7 @@ import MasterLogin from './components/MasterLogin';
 import GitHubPagesDashboard from './components/GitHubPagesDashboard';
 import GitHubPagesLogin from './components/GitHubPagesLogin';
 import { PWAInstallBanner, OfflineIndicator } from './components/PWAInstallBanner';
+import { Toaster } from './components/ui/sonner';
 import { isGitHubPages, isGitHubPagesAuthenticated, logoutGitHubPages } from './supabaseClient';
 
 type AppMode = 'selector' | 'client' | 'master-login' | 'master';
@@ -114,6 +115,7 @@ function LocalApp() {
       <OfflineIndicator />
       {renderContent()}
       <PWAInstallBanner />
+      <Toaster />
     </>
   );
 }
@@ -137,6 +139,7 @@ function GitHubPagesApp() {
         <OfflineIndicator />
         <GitHubPagesLogin onLogin={handleLogin} />
         <PWAInstallBanner />
+        <Toaster />
       </>
     );
   }
@@ -146,6 +149,7 @@ function GitHubPagesApp() {
       <OfflineIndicator />
       <GitHubPagesDashboard onLogout={handleLogout} />
       <PWAInstallBanner />
+      <Toaster />
     </>
   );
 }

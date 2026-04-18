@@ -1,5 +1,6 @@
-import { X, AlertTriangle, XCircle, CheckCircle, Building2, Server, CheckCheck, Eye } from 'lucide-react';
+import { AlertTriangle, XCircle, CheckCircle, Building2, Server, CheckCheck, Eye } from 'lucide-react';
 import { Alert } from '../types';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from './ui/dialog';
 
 
 interface AlertPanelProps {
@@ -36,11 +37,11 @@ const AlertPanel = ({ alerts, onClose, onMarkAsRead, onMarkAllAsRead, isAlertRea
   const getAlertIcon = (type: string) => {
     switch (type.toLowerCase()) {
       case 'process_stopped':
-        return <XCircle className="w-5 h-5 text-red-600" />;
+        return <XCircle className="w-5 h-5 text-red-600 dark:text-red-400" />;
       case 'process_started':
-        return <CheckCircle className="w-5 h-5 text-green-600" />;
+        return <CheckCircle className="w-5 h-5 text-green-600 dark:text-green-400" />;
       default:
-        return <AlertTriangle className="w-5 h-5 text-yellow-600" />;
+        return <AlertTriangle className="w-5 h-5 text-yellow-600 dark:text-yellow-400" />;
     }
   };
 
@@ -79,44 +80,31 @@ const AlertPanel = ({ alerts, onClose, onMarkAsRead, onMarkAllAsRead, isAlertRea
   };
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-[80vh] flex flex-col">
-        {/* Header */}
-        <div className="flex justify-between items-center p-6 border-b border-gray-200 dark:border-gray-700">
-          <div>
-            <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
-              System Alerts
-            </h2>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-              {unreadCount > 0 ? (
-                <>
-                  <span className="text-red-500 font-medium">{unreadCount} ยังไม่อ่าน</span>
-                  {' '}/ {alerts.length} ทั้งหมด
-                </>
-              ) : (
-                <>{alerts.length} alert{alerts.length !== 1 ? 's' : ''} (อ่านหมดแล้ว)</>
-              )}
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            {onMarkAllAsRead && unreadCount > 0 && (
-              <button
-                onClick={onMarkAllAsRead}
-                className="flex items-center gap-1 px-3 py-1.5 text-sm bg-blue-100 hover:bg-blue-200 dark:bg-blue-900/30 dark:hover:bg-blue-900/50 text-blue-700 dark:text-blue-300 rounded-lg transition-colors"
-                title="ทำเครื่องหมายว่าอ่านทั้งหมด"
-              >
-                <CheckCheck className="w-4 h-4" />
-                อ่านทั้งหมด
-              </button>
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-w-2xl max-h-[80vh] flex flex-col">
+        <DialogHeader>
+          <DialogTitle>System Alerts</DialogTitle>
+          <DialogDescription>
+            {unreadCount > 0 ? (
+              <>
+                <span className="text-red-500 font-medium">{unreadCount} ยังไม่อ่าน</span>
+                {' '}/ {alerts.length} ทั้งหมด
+              </>
+            ) : (
+              <>{alerts.length} alert{alerts.length !== 1 ? 's' : ''} (อ่านหมดแล้ว)</>
             )}
+          </DialogDescription>
+          {onMarkAllAsRead && unreadCount > 0 && (
             <button
-              onClick={onClose}
-              className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+              onClick={onMarkAllAsRead}
+              className="flex items-center gap-1 px-3 py-1.5 text-sm bg-blue-100 hover:bg-blue-200 dark:bg-blue-900/30 dark:hover:bg-blue-900/50 text-blue-700 dark:text-blue-300 rounded-lg transition-colors self-start"
+              title="ทำเครื่องหมายว่าอ่านทั้งหมด"
             >
-              <X className="w-6 h-6" />
+              <CheckCheck className="w-4 h-4" />
+              อ่านทั้งหมด
             </button>
-          </div>
-        </div>
+          )}
+        </DialogHeader>
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto p-6">
@@ -217,8 +205,8 @@ const AlertPanel = ({ alerts, onClose, onMarkAsRead, onMarkAllAsRead, isAlertRea
             ปิด
           </button>
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 };
 

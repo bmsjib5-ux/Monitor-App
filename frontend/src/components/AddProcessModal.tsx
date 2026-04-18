@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
-import { X, Search, Building2, FolderOpen, Monitor, Loader2, Calendar } from 'lucide-react';
+import { Search, Building2, FolderOpen, Monitor, Loader2, Calendar } from 'lucide-react';
 import { api } from '../api';
 import { AvailableProcess, AddProcessData, WindowInfo } from '../types';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
 
 // LocalStorage key for remembering hospital info
 const HOSPITAL_INFO_KEY = 'monitorapp_hospital_info';
@@ -206,23 +207,13 @@ const AddProcessModal = ({ onClose, onAdd, defaultHospitalCode, defaultHospitalN
   };
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-[90vh] flex flex-col">
-        {/* Header */}
-        <div className="flex justify-between items-center p-6 border-b border-gray-200 dark:border-gray-700">
-          <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
-            เพิ่ม Process ที่ต้องการตรวจสอบ
-          </h2>
-          <button
-            onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
-          >
-            <X className="w-6 h-6" />
-          </button>
-        </div>
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>เพิ่ม Process ที่ต้องการตรวจสอบ</DialogTitle>
+        </DialogHeader>
 
-        {/* Content */}
-        <div className="p-6 flex-1 overflow-y-auto">
+        <div className="flex-1 overflow-y-auto">
           <form onSubmit={handleSubmit} className="space-y-4">
             {/* Process Name */}
             <div>
@@ -353,8 +344,12 @@ const AddProcessModal = ({ onClose, onAdd, defaultHospitalCode, defaultHospitalN
                 placeholder="e.g., 12345"
                 maxLength={5}
               />
-              {errors.hospitalCode && (
+              {errors.hospitalCode ? (
                 <p className="mt-1 text-sm text-red-500">{errors.hospitalCode}</p>
+              ) : (
+                <p className={`mt-1 text-xs ${hospitalCode.length === 5 ? 'text-green-600 dark:text-green-400' : 'text-gray-500 dark:text-gray-400'}`}>
+                  {hospitalCode.length === 0 ? 'ต้องเป็นตัวเลข 5 หลัก' : hospitalCode.length === 5 ? '✓ ถูกต้อง' : `${hospitalCode.length}/5 หลัก`}
+                </p>
               )}
             </div>
 
@@ -404,7 +399,7 @@ const AddProcessModal = ({ onClose, onAdd, defaultHospitalCode, defaultHospitalN
             </div>
 
             {/* Install Date and Warranty Expiry */}
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   <Calendar className="w-4 h-4 inline mr-1" />
@@ -458,7 +453,7 @@ const AddProcessModal = ({ onClose, onAdd, defaultHospitalCode, defaultHospitalN
             <div className="pt-2">
               <button
                 type="submit"
-                className="w-full px-6 py-3 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors font-medium"
+                className="w-full px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2 focus-visible:outline-none transition-colors font-medium"
               >
                 เพิ่ม Process
               </button>
@@ -521,7 +516,7 @@ const AddProcessModal = ({ onClose, onAdd, defaultHospitalCode, defaultHospitalN
         </div>
 
         {/* Footer */}
-        <div className="flex justify-end gap-2 p-6 border-t border-gray-200 dark:border-gray-700">
+        <div className="flex justify-end gap-2 pt-4 border-t border-gray-200 dark:border-gray-700 mt-4">
           <button
             onClick={onClose}
             className="px-4 py-2 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
@@ -529,8 +524,8 @@ const AddProcessModal = ({ onClose, onAdd, defaultHospitalCode, defaultHospitalN
             ยกเลิก
           </button>
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 };
 

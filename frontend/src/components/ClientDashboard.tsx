@@ -11,6 +11,7 @@ import AlertSettingsModal from './AlertSettingsModal';
 import ToastNotification from './ToastNotification';
 import LicenseModal, { getLicenseFromStorage, verifyLicenseKey } from './LicenseModal';
 import { saveProcessMetadata, getStoredMetadata, getAlertSettings } from '../utils/localStorage';
+import { toast } from 'sonner';
 
 interface ClientDashboardProps {
   onSwitchToMaster: () => void;
@@ -69,6 +70,8 @@ function ClientDashboard({ onSwitchToMaster }: ClientDashboardProps) {
   const [, setAlertSettings] = useState<AlertSettings>(() => getAlertSettings());
   const [wsClient] = useState(() => new WebSocketClient());
   const [readAlerts, setReadAlerts] = useState<Set<string>>(() => getReadAlertsFromStorage());
+  const [actionInProgress, setActionInProgress] = useState<Set<string>>(new Set());
+  const [isExporting, setIsExporting] = useState(false);
   const [isClearingCache, setIsClearingCache] = useState(false);
   const [isSyncingLineSettings, setIsSyncingLineSettings] = useState(false);
   // License state
@@ -385,78 +388,80 @@ function ClientDashboard({ onSwitchToMaster }: ClientDashboardProps) {
       setShowAddModal(false);
       await loadInitialData();
     } catch (error: any) {
-      // Show user-friendly Thai error message
-      const errorMessage = error.response?.data?.detail || 'เกิดข้อผิดพลาดในการเพิ่ม Process กรุณาลองใหม่อีกครั้ง';
-      alert(errorMessage);
+      toast.error(error.response?.data?.detail || 'เกิดข้อผิดพลาดในการเพิ่ม Process');
     }
   };
 
   const handleRemoveProcess = async (process: ProcessInfo) => {
+    if (!confirm(`ต้องการลบ "${process.name}" (PID: ${process.pid}) ออกจากการ monitor หรือไม่?\n\n(Process จะไม่ถูกหยุดทำงาน แต่จะไม่แสดงในรายการอีกต่อไป)`)) {
+      return;
+    }
     try {
-      // Send pid and hostname to ensure we only delete the specific machine's process
       await api.removeProcess(process.name, process.pid, process.hostname);
       if (selectedProcess === process.name) {
         setSelectedProcess(null);
       }
+      toast.success(`ลบ ${process.name} สำเร็จ`);
       await loadInitialData();
     } catch (error: any) {
-      alert(error.response?.data?.detail || 'Error removing process');
+      toast.error(error.response?.data?.detail || 'Error removing process');
     }
+  };
+
+  const withActionLock = async (key: string, fn: () => Promise<void>) => {
+    if (actionInProgress.has(key)) return;
+    setActionInProgress(prev => new Set(prev).add(key));
+    try { await fn(); }
+    finally { setActionInProgress(prev => { const s = new Set(prev); s.delete(key); return s; }); }
   };
 
   const handleStopProcess = async (process: ProcessInfo) => {
-    try {
-      const result = await api.stopProcess(process.name, {
-        pid: process.pid,
-        hostname: process.hostname,
-        hospitalCode: process.hospital_code,
-        force: false
-      });
-      if (result.success) {
-        alert(result.message);
-      } else {
-        alert(result.message);
+    await withActionLock(`stop-${process.pid}`, async () => {
+      try {
+        const result = await api.stopProcess(process.name, {
+          pid: process.pid,
+          hostname: process.hostname,
+          hospitalCode: process.hospital_code,
+          force: false
+        });
+        result.success ? toast.success(result.message) : toast.error(result.message);
+      } catch (error: any) {
+        toast.error(error.response?.data?.detail || 'Error stopping process');
       }
-    } catch (error: any) {
-      alert(error.response?.data?.detail || 'Error stopping process');
-    }
+    });
   };
 
   const handleStartProcess = async (process: ProcessInfo) => {
-    try {
-      const result = await api.startProcess(process.name, {
-        pid: process.pid,
-        hostname: process.hostname,
-        hospitalCode: process.hospital_code,
-        executablePath: process.program_path
-      });
-      if (result.success) {
-        alert(result.message);
-      } else {
-        alert(result.message);
+    await withActionLock(`start-${process.name}`, async () => {
+      try {
+        const result = await api.startProcess(process.name, {
+          pid: process.pid,
+          hostname: process.hostname,
+          hospitalCode: process.hospital_code,
+          executablePath: process.program_path
+        });
+        result.success ? toast.success(result.message) : toast.error(result.message);
+      } catch (error: any) {
+        toast.error(error.response?.data?.detail || 'Error starting process');
       }
-    } catch (error: any) {
-      alert(error.response?.data?.detail || 'Error starting process');
-    }
+    });
   };
 
   const handleRestartProcess = async (process: ProcessInfo) => {
-    try {
-      const result = await api.restartProcess(process.name, {
-        pid: process.pid,
-        hostname: process.hostname,
-        hospitalCode: process.hospital_code,
-        executablePath: process.program_path,
-        force: false
-      });
-      if (result.success) {
-        alert(result.message);
-      } else {
-        alert(result.message);
+    await withActionLock(`restart-${process.pid}`, async () => {
+      try {
+        const result = await api.restartProcess(process.name, {
+          pid: process.pid,
+          hostname: process.hostname,
+          hospitalCode: process.hospital_code,
+          executablePath: process.program_path,
+          force: false
+        });
+        result.success ? toast.success(result.message) : toast.error(result.message);
+      } catch (error: any) {
+        toast.error(error.response?.data?.detail || 'Error restarting process');
       }
-    } catch (error: any) {
-      alert(error.response?.data?.detail || 'Error restarting process');
-    }
+    });
   };
 
   const handleEditProcess = (name: string) => {
@@ -504,9 +509,7 @@ function ClientDashboard({ onSwitchToMaster }: ClientDashboardProps) {
         console.warn(response.supabase_warning);
       }
     } catch (error: any) {
-      // Show user-friendly Thai error message
-      const errorMessage = error.response?.data?.detail || 'เกิดข้อผิดพลาดในการบันทึกข้อมูล กรุณาลองใหม่อีกครั้ง';
-      alert(errorMessage);
+      toast.error(error.response?.data?.detail || 'เกิดข้อผิดพลาดในการบันทึกข้อมูล');
     }
   };
 
@@ -539,6 +542,8 @@ function ClientDashboard({ onSwitchToMaster }: ClientDashboardProps) {
   };
 
   const handleExportCSV = async () => {
+    if (isExporting) return;
+    setIsExporting(true);
     try {
       const blob = await api.exportCSV();
       const url = window.URL.createObjectURL(blob);
@@ -550,11 +555,15 @@ function ClientDashboard({ onSwitchToMaster }: ClientDashboardProps) {
       window.URL.revokeObjectURL(url);
       document.body.removeChild(a);
     } catch (error: any) {
-      alert(error.response?.data?.detail || 'Error exporting CSV');
+      toast.error(error.response?.data?.detail || 'Error exporting CSV');
+    } finally {
+      setIsExporting(false);
     }
   };
 
   const handleExportExcel = async () => {
+    if (isExporting) return;
+    setIsExporting(true);
     try {
       const blob = await api.exportExcel();
       const url = window.URL.createObjectURL(blob);
@@ -566,7 +575,9 @@ function ClientDashboard({ onSwitchToMaster }: ClientDashboardProps) {
       window.URL.revokeObjectURL(url);
       document.body.removeChild(a);
     } catch (error: any) {
-      alert(error.response?.data?.detail || 'Error exporting Excel');
+      toast.error(error.response?.data?.detail || 'Error exporting Excel');
+    } finally {
+      setIsExporting(false);
     }
   };
 
@@ -586,20 +597,15 @@ function ClientDashboard({ onSwitchToMaster }: ClientDashboardProps) {
       const result = await api.clearCache();
       if (result.success) {
         const details = result.details as { logs_cleared: boolean; local_metadata_cleaned: number; local_cache_cleared: boolean; kept_processes: string[] };
-        alert(
-          `เคลียร์ Cache สำเร็จ!\n\n` +
-          `- Logs cleared: ${details.logs_cleared ? 'Yes' : 'No'}\n` +
-          `- Local metadata removed: ${details.local_metadata_cleaned || 0} รายการ\n` +
-          `- Process ที่เก็บไว้: ${details.kept_processes.length} รายการ\n\n` +
-          `(ข้อมูลใน Supabase ยังคงอยู่)`
-        );
-        // Reload data after clearing cache
+        toast.success('เคลียร์ Cache สำเร็จ', {
+          description: `Local metadata: ${details.local_metadata_cleaned || 0} รายการ · Kept: ${details.kept_processes.length}`,
+        });
         await loadInitialData();
       } else {
-        alert('เกิดข้อผิดพลาดในการเคลียร์ Cache');
+        toast.error('เกิดข้อผิดพลาดในการเคลียร์ Cache');
       }
     } catch (error: any) {
-      alert(error.response?.data?.detail || 'Error clearing cache');
+      toast.error(error.response?.data?.detail || 'Error clearing cache');
     } finally {
       setIsClearingCache(false);
     }
@@ -614,18 +620,14 @@ function ClientDashboard({ onSwitchToMaster }: ClientDashboardProps) {
       const result = await response.json();
 
       if (result.success) {
-        alert(
-          `ซิงค์การตั้งค่า LINE สำเร็จ!\n\n` +
-          `- จากเครื่อง: ${result.source_hostname}\n` +
-          `- User IDs: ${result.user_count} คน\n` +
-          `- Group IDs: ${result.group_count} กลุ่ม\n` +
-          `- สถานะการแจ้งเตือน: ${result.enabled ? 'เปิด' : 'ปิด'}`
-        );
+        toast.success('ซิงค์ LINE settings สำเร็จ', {
+          description: `จาก: ${result.source_hostname} · User: ${result.user_count} · Group: ${result.group_count}`,
+        });
       } else {
-        alert(`ไม่สามารถซิงค์การตั้งค่าได้: ${result.message}`);
+        toast.error(`ไม่สามารถซิงค์การตั้งค่าได้: ${result.message}`);
       }
     } catch (error: any) {
-      alert('เกิดข้อผิดพลาดในการซิงค์การตั้งค่า LINE');
+      toast.error('เกิดข้อผิดพลาดในการซิงค์การตั้งค่า LINE');
     } finally {
       setIsSyncingLineSettings(false);
     }
@@ -672,6 +674,7 @@ function ClientDashboard({ onSwitchToMaster }: ClientDashboardProps) {
             <div className="flex gap-2">
               <button
                 onClick={() => setShowAlerts(!showAlerts)}
+                aria-label={`แจ้งเตือน${unreadRecentAlerts.length > 0 ? ` (${unreadRecentAlerts.length} รายการ)` : ''}`}
                 className="relative p-2 rounded-lg bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
                 title="Alerts"
               >
@@ -684,6 +687,7 @@ function ClientDashboard({ onSwitchToMaster }: ClientDashboardProps) {
               </button>
               <button
                 onClick={() => setShowAlertSettingsModal(true)}
+                aria-label="ตั้งค่าการแจ้งเตือน"
                 className="p-2 rounded-lg bg-orange-100 dark:bg-orange-900 hover:bg-orange-200 dark:hover:bg-orange-800 transition-colors"
                 title="ตั้งค่าการแจ้งเตือน"
               >
@@ -692,6 +696,7 @@ function ClientDashboard({ onSwitchToMaster }: ClientDashboardProps) {
               <button
                 onClick={handleSyncLineSettings}
                 disabled={isSyncingLineSettings}
+                aria-label="ซิงค์การตั้งค่า LINE"
                 className="p-2 rounded-lg bg-green-100 dark:bg-green-900 hover:bg-green-200 dark:hover:bg-green-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 title="ซิงค์การตั้งค่า LINE (ดึงจาก Supabase)"
               >
@@ -699,6 +704,7 @@ function ClientDashboard({ onSwitchToMaster }: ClientDashboardProps) {
               </button>
               <button
                 onClick={onSwitchToMaster}
+                aria-label="เปลี่ยนเป็น Master Mode"
                 className="p-2 rounded-lg bg-gradient-to-r from-purple-500 to-indigo-500 hover:from-purple-600 hover:to-indigo-600 transition-colors"
                 title="Switch to Master Mode"
               >
@@ -707,6 +713,7 @@ function ClientDashboard({ onSwitchToMaster }: ClientDashboardProps) {
               <button
                 onClick={handleClearCache}
                 disabled={isClearingCache}
+                aria-label="เคลียร์ Cache"
                 className="p-2 rounded-lg bg-red-100 dark:bg-red-900 hover:bg-red-200 dark:hover:bg-red-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 title="เคลียร์ Cache (ลบข้อมูลเก่าที่ไม่ใช้งาน)"
               >
@@ -714,10 +721,12 @@ function ClientDashboard({ onSwitchToMaster }: ClientDashboardProps) {
               </button>
               <div className="relative group">
                 <button
-                  className="p-2 rounded-lg bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
-                  title="Export"
+                  aria-label="Export"
+                  disabled={isExporting}
+                  className="p-2 rounded-lg bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  title={isExporting ? 'กำลัง Export...' : 'Export'}
                 >
-                  <Download className="w-5 h-5 text-gray-700 dark:text-gray-300" />
+                  <Download className={`w-5 h-5 text-gray-700 dark:text-gray-300 ${isExporting ? 'animate-pulse' : ''}`} />
                 </button>
                 <div className="absolute right-0 mt-2 w-32 bg-white dark:bg-gray-700 rounded-lg shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-10">
                   <button
@@ -736,6 +745,7 @@ function ClientDashboard({ onSwitchToMaster }: ClientDashboardProps) {
               </div>
               <button
                 onClick={() => setShowLicenseModal(true)}
+                aria-label={licenseValid ? `License: ${licenseInfo?.hospitalName || licenseInfo?.hospitalCode}` : 'ใส่ License'}
                 className={`p-2 rounded-lg transition-colors ${
                   licenseValid
                     ? 'bg-green-100 dark:bg-green-900 hover:bg-green-200 dark:hover:bg-green-800'
@@ -748,7 +758,7 @@ function ClientDashboard({ onSwitchToMaster }: ClientDashboardProps) {
               <button
                 onClick={() => {
                   if (!licenseValid) {
-                    alert('กรุณาใส่ License Key ก่อนเพิ่ม Process');
+                    toast.warning('กรุณาใส่ License Key ก่อนเพิ่ม Process');
                     setShowLicenseModal(true);
                     return;
                   }
@@ -822,7 +832,7 @@ function ClientDashboard({ onSwitchToMaster }: ClientDashboardProps) {
             ) : (
               <button
                 onClick={() => setShowAddModal(true)}
-                className="inline-flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                className="inline-flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 focus-visible:outline-none transition-colors"
               >
                 <Plus className="w-5 h-5" />
                 Add Your First Process

@@ -207,6 +207,18 @@ class ProcessMonitor:
         self.process_stopped_time: Dict[str, float] = {}
         # Track if we already sent stopped alert for this process
         self.process_stopped_alerted: Dict[str, bool] = {}
+        # Track if STARTED alert has been fired for current run (reset on stop)
+        self.process_started_alerted: Dict[str, bool] = {}
+        # Crash loop detection: list of (timestamp, event_type) per process
+        self.process_events: Dict[str, list] = {}
+        # Timestamp of last CRASH_LOOP alert per process (for cooldown)
+        self.crash_loop_alerted: Dict[str, float] = {}
+
+        # Crash loop constants
+        self.CRASH_LOOP_WINDOW = 15 * 60  # 15 minutes
+        self.CRASH_LOOP_THRESHOLD = 3  # ≥3 stops in window = crash loop
+        self.CRASH_LOOP_COOLDOWN = 60 * 60  # 1 hour between crash loop alerts
+        self.MIN_UPTIME_FOR_STARTED = 60  # seconds - process must be stable this long
 
         # Alert settings (enabled/disabled flags and thresholds)
         self.alert_settings = {
@@ -359,8 +371,12 @@ class ProcessMonitor:
                 pid = self.monitored_processes[process_name]['pid']
                 # Process restarted - update status
                 if self.prev_process_status.get(process_name) == "stopped":
-                    self._create_process_started_alert(process_name, pid)
+                    self.process_started_alerted[process_name] = False
                     logger.info(f"Process {process_name} (PID: {pid}) has restarted!")
+
+                # Try to fire STARTED alert (deferred if uptime < 60s)
+                if not self.process_started_alerted.get(process_name, False):
+                    self._create_process_started_alert(process_name, pid)
 
             # Get CPU percentage
             cpu_percent = proc.cpu_percent(interval=0.1)
@@ -488,14 +504,94 @@ class ProcessMonitor:
             logger.error(f"Error getting info for {process_name}: {e}")
             return None
 
+    def _record_event(self, process_name: str, event_type: str):
+        """Record stop/start event for crash loop detection"""
+        now = time.time()
+        if process_name not in self.process_events:
+            self.process_events[process_name] = []
+        self.process_events[process_name].append((now, event_type))
+        # Keep only events in last 30 min
+        self.process_events[process_name] = [
+            (t, et) for t, et in self.process_events[process_name]
+            if now - t < 30 * 60
+        ]
+
+    def _is_in_crash_loop_cooldown(self, process_name: str) -> bool:
+        """Check if process is in crash loop cooldown (recently alerted)"""
+        last = self.crash_loop_alerted.get(process_name, 0)
+        return (time.time() - last) < self.CRASH_LOOP_COOLDOWN
+
+    def _check_crash_loop(self, process_name: str) -> int:
+        """Return count of stop events in window if crash loop detected, else 0"""
+        now = time.time()
+        events = self.process_events.get(process_name, [])
+        recent_stops = [t for t, et in events if et == 'stop' and now - t < self.CRASH_LOOP_WINDOW]
+        if len(recent_stops) >= self.CRASH_LOOP_THRESHOLD:
+            return len(recent_stops)
+        return 0
+
+    def _create_crash_loop_alert(self, process_name: str, pid: int, stop_count: int):
+        """Create CRASH_LOOP alert (once per cooldown period)"""
+        now = time.time()
+        self.crash_loop_alerted[process_name] = now
+
+        timestamp = get_thai_iso()
+        proc_data = self.monitored_processes.get(process_name, {})
+        alert = Alert(
+            timestamp=timestamp,
+            process_name=process_name,
+            alert_type="CRASH_LOOP",
+            message=f"โปรแกรม {process_name} crash loop! หยุด/เริ่มใหม่ {stop_count} ครั้งภายใน 15 นาที",
+            value=float(stop_count),
+            threshold=float(self.CRASH_LOOP_THRESHOLD),
+            hospital_code=proc_data.get('hospital_code'),
+            hospital_name=proc_data.get('hospital_name'),
+            hostname=proc_data.get('hostname') or socket.gethostname()
+        )
+        self.alerts.append(alert)
+        logger.warning(f"CRASH_LOOP detected: {process_name} stopped {stop_count} times in 15 min")
+
+        # Send LINE notification
+        line_service = get_line_notify_service()
+        if line_service and line_service.is_configured():
+            hostname = proc_data.get('hostname')
+            hospital_name = proc_data.get('hospital_name')
+            try:
+                send_line_notification_async(
+                    line_service.send_alert(
+                        process_name=process_name,
+                        alert_type="CRASH_LOOP",
+                        message=f"crash loop! หยุด/เริ่ม {stop_count} ครั้งใน 15 นาที (PID ล่าสุด: {pid})",
+                        hostname=hostname,
+                        hospital_name=hospital_name
+                    )
+                )
+            except Exception as e:
+                logger.error(f"Error sending CRASH_LOOP LINE notification: {e}")
+
     def _create_process_stopped_alert(self, process_name: str, pid: int):
         """Create alert when a process stops (with duration check)"""
         # Check if process stopped alert is enabled
         if not self.alert_settings.get("process_stopped_alert_enabled", True):
             return
 
+        # Record stop event for crash loop detection
+        if not self.process_stopped_alerted.get(process_name, False):
+            self._record_event(process_name, 'stop')
+
         # Check if we already sent alert for this process
         if self.process_stopped_alerted.get(process_name, False):
+            return
+
+        # Check crash loop — if detected, send CRASH_LOOP alert instead of STOPPED
+        stop_count = self._check_crash_loop(process_name)
+        if stop_count > 0 and not self._is_in_crash_loop_cooldown(process_name):
+            self._create_crash_loop_alert(process_name, pid, stop_count)
+            self.process_stopped_alerted[process_name] = True  # prevent duplicate alerts
+            return
+        # If in crash loop cooldown, skip all STOPPED alerts silently
+        if self._is_in_crash_loop_cooldown(process_name):
+            self.process_stopped_alerted[process_name] = True
             return
 
         # Get configured wait duration in seconds
@@ -556,15 +652,40 @@ class ProcessMonitor:
                 logger.error(f"Error sending LINE notification: {e}")
 
     def _create_process_started_alert(self, process_name: str, pid: int):
-        """Create alert when a process starts/restarts"""
+        """Create alert when a process starts/restarts.
+        Uses minimum uptime filter: only fires after process has been stable for 60s.
+        Skips if in crash loop cooldown."""
         # Reset stopped tracking when process starts
         if process_name in self.process_stopped_time:
             del self.process_stopped_time[process_name]
         if process_name in self.process_stopped_alerted:
             del self.process_stopped_alerted[process_name]
 
-        timestamp = get_thai_iso()
+        # Record start event
+        self._record_event(process_name, 'start')
+
+        # Skip if in crash loop cooldown (already alerted recently)
+        if self._is_in_crash_loop_cooldown(process_name):
+            logger.debug(f"Skipping STARTED alert for {process_name} — in crash loop cooldown")
+            return
+
+        # Skip if already alerted for this run
+        if self.process_started_alerted.get(process_name, False):
+            return
+
+        # Minimum uptime filter: check if process has been running ≥ 60s
         proc_data = self.monitored_processes.get(process_name, {})
+        create_time = proc_data.get('create_time')
+        if create_time:
+            uptime = time.time() - create_time
+            if uptime < self.MIN_UPTIME_FOR_STARTED:
+                logger.debug(f"Deferring STARTED alert for {process_name} — uptime only {uptime:.0f}s")
+                return
+
+        # Mark as alerted (won't fire again until process stops)
+        self.process_started_alerted[process_name] = True
+
+        timestamp = get_thai_iso()
         alert = Alert(
             timestamp=timestamp,
             process_name=process_name,
@@ -577,13 +698,11 @@ class ProcessMonitor:
             hostname=proc_data.get('hostname') or socket.gethostname()
         )
         self.alerts.append(alert)
-        logger.info(f"Alert created: Process {process_name} started")
+        logger.info(f"Alert created: Process {process_name} started (uptime {time.time() - create_time:.0f}s)")
 
         # Send LINE notification
         line_service = get_line_notify_service()
         if line_service and line_service.is_configured():
-            # Get process metadata for hospital info
-            proc_data = self.monitored_processes.get(process_name, {})
             hostname = proc_data.get('hostname')
             hospital_name = proc_data.get('hospital_name')
             try:

@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
-import { X, Save, AlertCircle, Clock, RotateCcw, Play, Monitor, Loader2, Calendar, Building2 } from 'lucide-react';
+import { Save, AlertCircle, Clock, RotateCcw, Play, Monitor, Loader2, Calendar, Building2 } from 'lucide-react';
 import { api } from '../api';
 import { RestartSchedule, RestartScheduleType, AutoStartSchedule, AutoStartScheduleType, WindowInfo } from '../types';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
 
 // Re-export for backward compatibility
 export type { RestartSchedule, RestartScheduleType, AutoStartSchedule, AutoStartScheduleType } from '../types';
@@ -189,26 +190,17 @@ const EditProcessModal = ({
   };
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
-        {/* Header */}
-        <div className="flex justify-between items-center p-6 border-b border-gray-200 dark:border-gray-700">
-          <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
-            Edit Process Details
-          </h2>
-          <button
-            onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
-          >
-            <X className="w-6 h-6" />
-          </button>
-        </div>
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Edit Process Details</DialogTitle>
+        </DialogHeader>
 
         {/* Content */}
         <form onSubmit={handleSubmit}>
           <div className="p-6 space-y-4">
             {/* Process Name and PID (Read-only) */}
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   Process Name
@@ -367,7 +359,7 @@ const EditProcessModal = ({
             </div>
 
             {/* Install Date and Warranty Expiry */}
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   <Calendar className="w-4 h-4 inline mr-1" />
@@ -693,8 +685,8 @@ const EditProcessModal = ({
             </button>
           </div>
         </form>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 };
 

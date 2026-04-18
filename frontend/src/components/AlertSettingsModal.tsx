@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
-import { X, Save, Bell, Cpu, HardDrive, Network, MemoryStick, Clock, RotateCcw, AlertTriangle, Loader2 } from 'lucide-react';
+import { Save, Bell, Cpu, HardDrive, Network, MemoryStick, Clock, RotateCcw, AlertTriangle, Loader2 } from 'lucide-react';
 import { AlertSettings } from '../types';
 import { getAlertSettings, saveAlertSettings, defaultAlertSettings } from '../utils/localStorage';
 import { api } from '../api';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
 
 interface AlertSettingsModalProps {
   onClose: () => void;
@@ -79,24 +80,17 @@ const AlertSettingsModal = ({ onClose, onSave }: AlertSettingsModalProps) => {
   };
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
-        {/* Header */}
-        <div className="flex justify-between items-center p-6 border-b border-gray-200 dark:border-gray-700">
-          <h2 className="text-xl font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
             <Bell className="w-6 h-6 text-orange-500" />
             ตั้งค่าการแจ้งเตือน
-          </h2>
-          <button
-            onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
-          >
-            <X className="w-6 h-6" />
-          </button>
-        </div>
+          </DialogTitle>
+        </DialogHeader>
 
         <form onSubmit={handleSubmit}>
-          <div className="p-6 space-y-6">
+          <div className="space-y-6">
             {/* CPU Alert */}
             <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
               <div className="flex items-center justify-between mb-3">
@@ -332,8 +326,8 @@ const AlertSettingsModal = ({ onClose, onSave }: AlertSettingsModalProps) => {
             </div>
           </div>
         </form>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 };
 

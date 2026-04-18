@@ -15,6 +15,16 @@ interface ToastItem {
 // LocalStorage key for seen toast alerts
 const SEEN_TOASTS_KEY = 'monitorapp_seen_toasts';
 
+// Toast auto-dismiss timings (ms)
+const TOAST_DURATIONS: Record<string, number> = {
+  process_stopped: 12000,
+  process_started: 8000,
+};
+const DEFAULT_TOAST_DURATION = 8000;
+
+const getToastDuration = (alertType: string): number =>
+  TOAST_DURATIONS[alertType.toLowerCase()] ?? DEFAULT_TOAST_DURATION;
+
 // Helper to generate unique alert key
 const getAlertKey = (alert: Alert): string => {
   return `${alert.timestamp}_${alert.process_name}_${alert.alert_type}`;
@@ -111,10 +121,9 @@ const ToastNotification = ({ alerts, onDismiss }: ToastNotificationProps) => {
 
       // Auto-dismiss after timeout
       newAlerts.forEach(alert => {
-        const timeout = alert.alert_type.toLowerCase() === 'process_stopped' ? 30000 : 10000;
         setTimeout(() => {
           handleDismiss(alert.timestamp);
-        }, timeout);
+        }, getToastDuration(alert.alert_type));
       });
     }
   }, [alerts, markAsSeen]);
@@ -186,11 +195,11 @@ const ToastNotification = ({ alerts, onDismiss }: ToastNotificationProps) => {
                   : 'โปรแกรมเริ่มทำงาน'}
               </h4>
               {toast.alert.hospital_name && (
-                <p className="text-sm font-medium opacity-95 mt-0.5">
+                <p className="text-sm font-medium opacity-95 mt-0.5 break-words">
                   {toast.alert.hospital_name}
                 </p>
               )}
-              <p className="text-sm opacity-90 mt-0.5">
+              <p className="text-sm opacity-90 mt-0.5 break-words">
                 {toast.alert.process_name}
               </p>
               <p className="text-xs opacity-75 mt-1">
@@ -204,7 +213,7 @@ const ToastNotification = ({ alerts, onDismiss }: ToastNotificationProps) => {
             <div
               className="h-full bg-white/50 animate-shrink"
               style={{
-                animationDuration: toast.alert.alert_type.toLowerCase() === 'process_stopped' ? '30s' : '10s'
+                animationDuration: `${getToastDuration(toast.alert.alert_type)}ms`
               }}
             />
           </div>

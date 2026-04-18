@@ -7,7 +7,7 @@ import {
   SortingState,
   createColumnHelper,
 } from '@tanstack/react-table';
-import { Trash2, ArrowUp, ArrowDown, StopCircle, PlayCircle, RotateCw, Edit } from 'lucide-react';
+import { Trash2, ArrowUp, ArrowDown, StopCircle, PlayCircle, RotateCw, Edit, CheckCircle, XCircle, Inbox } from 'lucide-react';
 import { ProcessInfo } from '../types';
 import BMSStatusIndicator from './BMSStatusIndicator';
 import { useState } from 'react';
@@ -89,12 +89,13 @@ const ProcessTable = ({
           const isRunning = status === 'running';
           return (
             <span
-              className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
+              className={`inline-flex items-center gap-1 px-2 py-1 text-xs font-semibold rounded-full ${
                 isRunning
                   ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400'
                   : 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400'
               }`}
             >
+              {isRunning ? <CheckCircle className="w-3 h-3" /> : <XCircle className="w-3 h-3" />}
               {status}
             </span>
           );
@@ -359,19 +360,31 @@ const ProcessTable = ({
             ))}
           </thead>
           <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-            {table.getRowModel().rows.map((row) => (
-              <tr
-                key={row.id}
-                onClick={() => onSelectProcess(row.original.name)}
-                className={getRowClassName(row.original)}
-              >
-                {row.getVisibleCells().map((cell) => (
-                  <td key={cell.id} className="px-6 py-4 whitespace-nowrap text-sm">
-                    {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                  </td>
-                ))}
+            {table.getRowModel().rows.length === 0 ? (
+              <tr>
+                <td colSpan={table.getAllColumns().length} className="px-6 py-12 text-center">
+                  <div className="flex flex-col items-center gap-2 text-gray-400 dark:text-gray-500">
+                    <Inbox className="w-12 h-12" />
+                    <p className="text-sm font-medium">ไม่มี Process ที่ monitor อยู่</p>
+                    <p className="text-xs">กด "Add Process" เพื่อเพิ่ม process ที่ต้องการตรวจสอบ</p>
+                  </div>
+                </td>
               </tr>
-            ))}
+            ) : (
+              table.getRowModel().rows.map((row) => (
+                <tr
+                  key={row.id}
+                  onClick={() => onSelectProcess(row.original.name)}
+                  className={getRowClassName(row.original)}
+                >
+                  {row.getVisibleCells().map((cell) => (
+                    <td key={cell.id} className="px-6 py-4 whitespace-nowrap text-sm">
+                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                    </td>
+                  ))}
+                </tr>
+              ))
+            )}
           </tbody>
         </table>
       </div>

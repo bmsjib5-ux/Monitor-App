@@ -1649,6 +1649,62 @@ async def query_process_history_latest(hostname: str = None, hospital_code: str 
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
+@app.get("/api/supabase/alerts/24h")
+async def query_alerts_24h(limit: int = 500):
+    """Get last 24 hours of PROCESS_STOPPED/STARTED alerts for insight dashboard"""
+    try:
+        if not settings.use_supabase:
+            raise HTTPException(status_code=400, detail="Supabase is not enabled")
+
+        from database_supabase import db as supabase_db
+        from datetime import datetime, timedelta
+
+        since_utc = datetime.utcnow() - timedelta(hours=24)
+        since_iso = since_utc.strftime("%Y-%m-%dT%H:%M:%S")
+
+        result = await supabase_db.select(
+            "alerts",
+            filters={
+                "created_at": f"gte.{since_iso}",
+                "alert_type": "in.(PROCESS_STOPPED,PROCESS_STARTED)"
+            },
+            limit=limit,
+            order_by="created_at.desc"
+        )
+
+        if not result:
+            return {"count": 0, "data": [], "since": since_iso}
+
+        # Enrich missing hospital_name via process_history lookup
+        hostnames_missing = {
+            a.get("hostname") for a in result
+            if not a.get("hospital_name") and a.get("hostname")
+        }
+        hospital_map: dict = {}
+        if hostnames_missing:
+            ph = await supabase_db.select("process_history", limit=500, order_by="recorded_at.desc")
+            if ph:
+                for item in ph:
+                    h = item.get("hostname")
+                    if h and h not in hospital_map and item.get("hospital_name"):
+                        hospital_map[h] = {
+                            "hospital_code": item.get("hospital_code"),
+                            "hospital_name": item.get("hospital_name")
+                        }
+
+        for alert in result:
+            if not alert.get("hospital_name") and alert.get("hostname"):
+                lookup = hospital_map.get(alert["hostname"])
+                if lookup:
+                    alert["hospital_name"] = lookup["hospital_name"]
+                    alert["hospital_code"] = alert.get("hospital_code") or lookup["hospital_code"]
+
+        return {"count": len(result), "data": result, "since": since_iso}
+    except Exception as e:
+        logger.error(f"Supabase alerts 24h query failed: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
 @app.get("/api/supabase/alerts/today")
 async def query_alerts_today(limit: int = 50):
     """Get today's alerts (PROCESS_STOPPED/STARTED only) ordered by newest first"""
