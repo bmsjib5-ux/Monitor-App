@@ -16,6 +16,12 @@ const isDev = !app.isPackaged;
 const BACKEND_PORT = 3001;
 const BACKEND_HOST = '127.0.0.1';
 
+// Detect if launched at Windows login (hidden mode)
+// Either via Windows opening login item as hidden, or via explicit --hidden flag we register
+const wasLaunchedHidden =
+  app.getLoginItemSettings().wasOpenedAsHidden ||
+  process.argv.includes('--hidden');
+
 // Logging
 function log(message) {
   const timestamp = new Date().toISOString();
@@ -585,9 +591,13 @@ function createWindow() {
     mainWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
   }
 
-  // Show window when ready
+  // Show window when ready — unless launched at Windows login (start hidden in tray)
   mainWindow.once('ready-to-show', () => {
-    mainWindow.show();
+    if (!wasLaunchedHidden) {
+      mainWindow.show();
+    } else {
+      log('Launched as hidden (auto-start) — staying in tray');
+    }
   });
 
   // Handle close to tray
@@ -658,6 +668,25 @@ function updateTrayMenu() {
       }
     },
     {
+      label: 'Start with Windows',
+      type: 'checkbox',
+      checked: app.isPackaged ? app.getLoginItemSettings().openAtLogin : false,
+      enabled: app.isPackaged,
+      click: (item) => {
+        try {
+          app.setLoginItemSettings({
+            openAtLogin: item.checked,
+            openAsHidden: item.checked,
+            path: process.execPath,
+            args: item.checked ? ['--hidden'] : [],
+          });
+          log(`Auto-start ${item.checked ? 'enabled' : 'disabled'}`);
+        } catch (e) {
+          log(`Toggle auto-start failed: ${e.message}`);
+        }
+      }
+    },
+    {
       label: 'View Logs',
       click: () => {
         dialog.showMessageBox({
@@ -682,12 +711,34 @@ function updateTrayMenu() {
   tray.setContextMenu(contextMenu);
 }
 
+// Enable auto-start at Windows login, with hidden window (tray-only).
+// Only enable when packaged — dev mode (electron .) should not register.
+function setupAutoStart() {
+  if (!app.isPackaged) return;
+  try {
+    const exePath = process.execPath;
+    app.setLoginItemSettings({
+      openAtLogin: true,
+      openAsHidden: true,
+      path: exePath,
+      args: ['--hidden'],
+    });
+    log(`Auto-start registered: ${exePath} --hidden`);
+  } catch (e) {
+    log(`Failed to register auto-start: ${e.message}`);
+  }
+}
+
 // App lifecycle
 app.whenReady().then(async () => {
   log('Starting MonitorApp...');
   log(`App path: ${app.getAppPath()}`);
   log(`Resources path: ${process.resourcesPath}`);
   log(`Is packaged: ${app.isPackaged}`);
+  log(`Launched hidden: ${wasLaunchedHidden}`);
+
+  // Register Windows auto-start (idempotent)
+  setupAutoStart();
 
   // Start backend first
   const backendStarted = await startBackend();
@@ -752,4 +803,27 @@ ipcMain.handle('restart-backend', async () => {
 
 ipcMain.handle('get-logs', () => {
   return backendLogs;
+});
+
+ipcMain.handle('get-auto-start', () => {
+  if (!app.isPackaged) return { enabled: false, supported: false };
+  const s = app.getLoginItemSettings();
+  return { enabled: s.openAtLogin, supported: true };
+});
+
+ipcMain.handle('set-auto-start', (_event, enabled) => {
+  if (!app.isPackaged) return false;
+  try {
+    app.setLoginItemSettings({
+      openAtLogin: !!enabled,
+      openAsHidden: !!enabled,
+      path: process.execPath,
+      args: enabled ? ['--hidden'] : [],
+    });
+    updateTrayMenu();
+    return true;
+  } catch (e) {
+    log(`Failed to set auto-start: ${e.message}`);
+    return false;
+  }
 });

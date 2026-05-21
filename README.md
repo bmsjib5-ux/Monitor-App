@@ -26,7 +26,7 @@ start-all.bat
 เปิด Browser ที่ **http://localhost:3001** อัตโนมัติ
 
 ### Master (Web)
-- Production: https://bmsjib5-ux.github.io/MonitorApp/
+- Production: https://bmsjib5-ux.github.io/Monitor-App/
 - Dev: `cd master-app && npm run dev` → http://localhost:5174
 
 ---

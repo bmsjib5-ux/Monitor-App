@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
-import { Moon, Sun, Plus, Download, AlertTriangle, RefreshCw, Bell, Trash2, MessageCircle, Key } from 'lucide-react';
+import { Moon, Sun, Plus, Download, Bell, Settings, Trash2, Key, LayoutGrid, Table as TableIcon } from 'lucide-react';
 import { ProcessInfo, Alert, AlertSettings } from '../types';
 import { api, WebSocketClient } from '../api';
 import ProcessTable from './ProcessTable';
+import ProcessCards from './ProcessCards';
 import ProcessCharts from './ProcessCharts';
 import AddProcessModal from './AddProcessModal';
 import AlertPanel from './AlertPanel';
@@ -13,9 +14,7 @@ import LicenseModal, { getLicenseFromStorage, verifyLicenseKey } from './License
 import { saveProcessMetadata, getStoredMetadata, getAlertSettings } from '../utils/localStorage';
 import { toast } from 'sonner';
 
-interface ClientDashboardProps {
-  onSwitchToMaster: () => void;
-}
+interface ClientDashboardProps {}
 
 // LocalStorage key for read alerts
 const READ_ALERTS_KEY = 'monitorapp_read_alerts';
@@ -51,7 +50,7 @@ const saveReadAlertsToStorage = (readAlerts: Set<string>) => {
   }
 };
 
-function ClientDashboard({ onSwitchToMaster }: ClientDashboardProps) {
+function ClientDashboard(_: ClientDashboardProps) {
   const [darkMode, setDarkMode] = useState(() => {
     try {
       return localStorage.getItem('monitorapp_dark_mode') === 'true';
@@ -73,7 +72,13 @@ function ClientDashboard({ onSwitchToMaster }: ClientDashboardProps) {
   const [actionInProgress, setActionInProgress] = useState<Set<string>>(new Set());
   const [isExporting, setIsExporting] = useState(false);
   const [isClearingCache, setIsClearingCache] = useState(false);
-  const [isSyncingLineSettings, setIsSyncingLineSettings] = useState(false);
+  const [viewMode, setViewMode] = useState<'grid' | 'card'>(() => {
+    try {
+      return (localStorage.getItem('monitorapp_view_mode') as 'grid' | 'card') || 'grid';
+    } catch {
+      return 'grid';
+    }
+  });
   // License state
   const [showLicenseModal, setShowLicenseModal] = useState(false);
   const [licenseInfo, setLicenseInfo] = useState<{ licenseKey: string; hospitalCode: string; hospitalName: string } | null>(null);
@@ -611,28 +616,6 @@ function ClientDashboard({ onSwitchToMaster }: ClientDashboardProps) {
     }
   };
 
-  const handleSyncLineSettings = async () => {
-    setIsSyncingLineSettings(true);
-    try {
-      const response = await fetch('http://localhost:3001/api/line-settings/sync', {
-        method: 'POST'
-      });
-      const result = await response.json();
-
-      if (result.success) {
-        toast.success('ซิงค์ LINE settings สำเร็จ', {
-          description: `จาก: ${result.source_hostname} · User: ${result.user_count} · Group: ${result.group_count}`,
-        });
-      } else {
-        toast.error(`ไม่สามารถซิงค์การตั้งค่าได้: ${result.message}`);
-      }
-    } catch (error: any) {
-      toast.error('เกิดข้อผิดพลาดในการซิงค์การตั้งค่า LINE');
-    } finally {
-      setIsSyncingLineSettings(false);
-    }
-  };
-
   // Count unread alerts (within 5 minutes)
   const recentAlerts = alerts.filter(alert => {
     const alertTime = new Date(alert.timestamp).getTime();
@@ -664,7 +647,7 @@ function ClientDashboard({ onSwitchToMaster }: ClientDashboardProps) {
                   Client Mode
                 </span>
                 <span className="px-2 py-0.5 bg-gray-200 text-gray-600 dark:bg-gray-700 dark:text-gray-300 text-xs font-mono rounded">
-                  v4.1.0
+                  v5.0.0
                 </span>
               </div>
               <p className="text-sm text-gray-500 dark:text-gray-400">
@@ -672,13 +655,31 @@ function ClientDashboard({ onSwitchToMaster }: ClientDashboardProps) {
               </p>
             </div>
             <div className="flex gap-2">
+              <div className="inline-flex rounded-lg bg-gray-100 dark:bg-gray-700 p-0.5">
+                <button
+                  onClick={() => { setViewMode('grid'); try { localStorage.setItem('monitorapp_view_mode', 'grid'); } catch {} }}
+                  className={`p-1.5 rounded-md transition-colors ${viewMode === 'grid' ? 'bg-white dark:bg-gray-800 shadow text-blue-600 dark:text-blue-400' : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white'}`}
+                  title="มุมมองตาราง (Grid)"
+                  aria-label="Grid view"
+                >
+                  <TableIcon className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => { setViewMode('card'); try { localStorage.setItem('monitorapp_view_mode', 'card'); } catch {} }}
+                  className={`p-1.5 rounded-md transition-colors ${viewMode === 'card' ? 'bg-white dark:bg-gray-800 shadow text-blue-600 dark:text-blue-400' : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white'}`}
+                  title="มุมมองการ์ด (Card)"
+                  aria-label="Card view"
+                >
+                  <LayoutGrid className="w-4 h-4" />
+                </button>
+              </div>
               <button
                 onClick={() => setShowAlerts(!showAlerts)}
                 aria-label={`แจ้งเตือน${unreadRecentAlerts.length > 0 ? ` (${unreadRecentAlerts.length} รายการ)` : ''}`}
                 className="relative p-2 rounded-lg bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
                 title="Alerts"
               >
-                <AlertTriangle className="w-5 h-5 text-gray-700 dark:text-gray-300" />
+                <Bell className="w-5 h-5 text-gray-700 dark:text-gray-300" />
                 {unreadRecentAlerts.length > 0 && (
                   <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
                     {unreadRecentAlerts.length}
@@ -691,24 +692,7 @@ function ClientDashboard({ onSwitchToMaster }: ClientDashboardProps) {
                 className="p-2 rounded-lg bg-orange-100 dark:bg-orange-900 hover:bg-orange-200 dark:hover:bg-orange-800 transition-colors"
                 title="ตั้งค่าการแจ้งเตือน"
               >
-                <Bell className="w-5 h-5 text-orange-600 dark:text-orange-400" />
-              </button>
-              <button
-                onClick={handleSyncLineSettings}
-                disabled={isSyncingLineSettings}
-                aria-label="ซิงค์การตั้งค่า LINE"
-                className="p-2 rounded-lg bg-green-100 dark:bg-green-900 hover:bg-green-200 dark:hover:bg-green-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                title="ซิงค์การตั้งค่า LINE (ดึงจาก Supabase)"
-              >
-                <MessageCircle className={`w-5 h-5 text-green-600 dark:text-green-400 ${isSyncingLineSettings ? 'animate-pulse' : ''}`} />
-              </button>
-              <button
-                onClick={onSwitchToMaster}
-                aria-label="เปลี่ยนเป็น Master Mode"
-                className="p-2 rounded-lg bg-gradient-to-r from-purple-500 to-indigo-500 hover:from-purple-600 hover:to-indigo-600 transition-colors"
-                title="Switch to Master Mode"
-              >
-                <RefreshCw className="w-5 h-5 text-white" />
+                <Settings className="w-5 h-5 text-orange-600 dark:text-orange-400" />
               </button>
               <button
                 onClick={handleClearCache}
@@ -798,16 +782,29 @@ function ClientDashboard({ onSwitchToMaster }: ClientDashboardProps) {
         )}
 
         <div className="mb-6">
-          <ProcessTable
-            processes={processes}
-            onSelectProcess={setSelectedProcess}
-            onRemoveProcess={handleRemoveProcess}
-            onStopProcess={handleStopProcess}
-            onStartProcess={handleStartProcess}
-            onRestartProcess={handleRestartProcess}
-            onEditProcess={handleEditProcess}
-            selectedProcess={selectedProcess}
-          />
+          {viewMode === 'card' ? (
+            <ProcessCards
+              processes={processes}
+              onSelectProcess={setSelectedProcess}
+              onRemoveProcess={handleRemoveProcess}
+              onStopProcess={handleStopProcess}
+              onStartProcess={handleStartProcess}
+              onRestartProcess={handleRestartProcess}
+              onEditProcess={handleEditProcess}
+              selectedProcess={selectedProcess}
+            />
+          ) : (
+            <ProcessTable
+              processes={processes}
+              onSelectProcess={setSelectedProcess}
+              onRemoveProcess={handleRemoveProcess}
+              onStopProcess={handleStopProcess}
+              onStartProcess={handleStartProcess}
+              onRestartProcess={handleRestartProcess}
+              onEditProcess={handleEditProcess}
+              selectedProcess={selectedProcess}
+            />
+          )}
         </div>
 
         {selectedProcess && (

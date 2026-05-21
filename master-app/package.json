@@ -1,10 +1,10 @@
 {
   "name": "monitor-app-master",
-  "version": "4.6.0",
+  "version": "5.0.0",
   "private": true,
   "description": "MonitorApp Master - Web Dashboard (GitHub Pages)",
   "author": "MonitorApp",
-  "homepage": "https://bmsjib5-ux.github.io/MonitorApp/",
+  "homepage": "https://bmsjib5-ux.github.io/Monitor-App/",
   "dependencies": {
     "@radix-ui/react-alert-dialog": "^1.1.15",
     "@radix-ui/react-dialog": "^1.1.15",

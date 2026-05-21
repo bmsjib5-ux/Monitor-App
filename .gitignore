@@ -49,6 +49,12 @@ data/
 master.key
 backend/master.key
 frontend/release/
+client-app/release/
+client-app/dist/
+client-app/dev-dist/
+master-app/release/
+master-app/dist/
+master-app/dev-dist/
 program install/
 installer-output/
 build/
@@ -56,4 +62,5 @@ build/
 *.rar
 nul
 backend/Temp/
+client-app/backend/Temp/
 frontend/dev-dist/

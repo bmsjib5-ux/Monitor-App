@@ -3,15 +3,10 @@ import { PWAInstallBanner, OfflineIndicator } from './components/PWAInstallBanne
 import { Toaster } from './components/ui/sonner';
 
 function App() {
-  const handleSwitchToMaster = () => {
-    const masterUrl = (import.meta as any).env?.VITE_MASTER_URL || 'https://bmsjib5-ux.github.io/MonitorApp/';
-    window.open(masterUrl, '_blank');
-  };
-
   return (
     <>
       <OfflineIndicator />
-      <ClientDashboard onSwitchToMaster={handleSwitchToMaster} />
+      <ClientDashboard />
       <PWAInstallBanner />
       <Toaster />
     </>

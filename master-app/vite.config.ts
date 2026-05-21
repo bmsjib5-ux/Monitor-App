@@ -2,9 +2,9 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 
-// Master-app is deployed to GitHub Pages at /MonitorApp/
+// Master-app is deployed to GitHub Pages at /Monitor-App/ (repo: bmsjib5-ux/Monitor-App)
 // Override with VITE_BASE=/your-path/ to deploy elsewhere
-const base = process.env.VITE_BASE || '/MonitorApp/'
+const base = process.env.VITE_BASE || '/Monitor-App/'
 
 export default defineConfig({
   plugins: [

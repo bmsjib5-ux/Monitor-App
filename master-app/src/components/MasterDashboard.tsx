@@ -2397,7 +2397,7 @@ const MasterDashboard = ({ onSwitchToClient, onLogout }: MasterDashboardProps) =
               {infoTab === 'manual' ? (
                 <div className="space-y-6 text-gray-700 dark:text-gray-300">
                   <div>
-                    <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-2">Windows Application Monitor v4.0.60</h3>
+                    <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-2">Windows Application Monitor v5.0.0</h3>
                     <p className="text-sm">ระบบ Monitor การทำงานของโปรแกรม BMS HOSxP LIS Gateway แบบ Real-time สำหรับผู้ดูแลระบบส่วนกลาง</p>
                   </div>
 
@@ -2463,7 +2463,7 @@ const MasterDashboard = ({ onSwitchToClient, onLogout }: MasterDashboardProps) =
                     <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-2 flex items-center gap-2">
                       <Shield className="w-5 h-5 text-green-500" /> Cyber Security Standards
                     </h3>
-                    <p className="text-sm">มาตรการรักษาความปลอดภัยที่ใช้ในระบบ MonitorApp v4.0.60</p>
+                    <p className="text-sm">มาตรการรักษาความปลอดภัยที่ใช้ในระบบ MonitorApp v5.0.0</p>
                   </div>
 
                   {/* Authentication & Authorization */}
