@@ -1,4 +1,4 @@
-@echo off
+﻿@echo off
 echo.
 echo ========================================
 echo Starting Frontend Server (Port 3001)
@@ -6,7 +6,7 @@ echo ========================================
 echo.
 
 REM Go to frontend directory
-cd /d "%~dp0frontend"
+cd /d "%~dp0client-app"
 
 REM Check if node_modules exists
 if not exist "node_modules\" (

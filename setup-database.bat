@@ -1,11 +1,11 @@
-@echo off
+﻿@echo off
 chcp 65001 >nul
 echo ============================================
 echo    Monitor App - Database Setup
 echo ============================================
 echo.
 
-cd /d "%~dp0backend"
+cd /d "%~dp0client-app\backend"
 
 REM Check if Python is installed
 python --version >nul 2>&1

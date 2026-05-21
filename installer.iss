@@ -34,9 +34,9 @@ Name: "autostart"; Description: "Run at Windows startup (recommended for Client 
 
 [Files]
 ; Backend files
-Source: "backend\*"; DestDir: "{app}\backend"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "__pycache__,*.pyc,.env.local,*.log,logs\*"
+Source: "client-app\backend\*"; DestDir: "{app}\backend"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "__pycache__,*.pyc,.env.local,*.log,logs\*"
 ; Frontend dist
-Source: "frontend\dist\*"; DestDir: "{app}\frontend\dist"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "client-app\dist\*"; DestDir: "{app}\frontend\dist"; Flags: ignoreversion recursesubdirs createallsubdirs
 ; Scripts
 Source: "start-client.bat"; DestDir: "{app}"; Flags: ignoreversion
 Source: "start-client-hidden.vbs"; DestDir: "{app}"; Flags: ignoreversion

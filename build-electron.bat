@@ -1,11 +1,11 @@
-@echo off
+﻿@echo off
 title MonitorApp - Electron Build
 echo ========================================
 echo   MonitorApp Electron Build Script
 echo ========================================
 echo.
 
-cd /d "%~dp0frontend"
+cd /d "%~dp0client-app"
 
 echo [1/4] Installing dependencies...
 call npm install
@@ -45,5 +45,5 @@ echo   - MonitorApp Setup.exe (Installer)
 echo   - MonitorApp-Portable-*.exe (Portable)
 echo.
 
-explorer "%~dp0frontend\release"
+explorer "%~dp0client-app\release"
 pause

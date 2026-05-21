@@ -1,4 +1,4 @@
-@echo off
+﻿@echo off
 chcp 65001 >nul
 title Create MonitorApp Distribution Package
 
@@ -17,10 +17,10 @@ mkdir "%DIST_DIR%\%PACKAGE_NAME%"
 echo Copying files...
 
 :: Copy backend
-xcopy /s /e /i "%~dp0backend" "%DIST_DIR%\%PACKAGE_NAME%\backend" /exclude:%~dp0exclude-list.txt
+xcopy /s /e /i "%~dp0client-app\backend" "%DIST_DIR%\%PACKAGE_NAME%\backend" /exclude:%~dp0exclude-list.txt
 
 :: Copy frontend dist (already built)
-xcopy /s /e /i "%~dp0frontend\dist" "%DIST_DIR%\%PACKAGE_NAME%\frontend\dist"
+xcopy /s /e /i "%~dp0client-app\dist" "%DIST_DIR%\%PACKAGE_NAME%\frontend\dist"
 
 :: Copy scripts
 copy "%~dp0install-client.bat" "%DIST_DIR%\%PACKAGE_NAME%\"

@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <defs>
+    <linearGradient id="grad1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#8B5CF6;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#6366F1;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  <rect width="256" height="256" rx="40" fill="url(#grad1)"/>
+  <g fill="white">
+    <!-- Monitor icon -->
+    <rect x="48" y="56" width="160" height="100" rx="8" fill="none" stroke="white" stroke-width="12"/>
+    <rect x="100" y="168" width="56" height="12" rx="4"/>
+    <rect x="80" y="188" width="96" height="12" rx="4"/>
+    <!-- Chart lines inside monitor -->
+    <polyline points="72,120 96,100 128,110 160,80 184,90" fill="none" stroke="white" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="72" cy="120" r="6" fill="#10B981"/>
+    <circle cx="96" cy="100" r="6" fill="#10B981"/>
+    <circle cx="128" cy="110" r="6" fill="#F59E0B"/>
+    <circle cx="160" cy="80" r="6" fill="#EF4444"/>
+    <circle cx="184" cy="90" r="6" fill="#10B981"/>
+  </g>
+</svg>

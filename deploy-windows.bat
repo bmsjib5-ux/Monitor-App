@@ -1,12 +1,12 @@
-@echo off
+﻿@echo off
 chcp 65001 >nul
 setlocal EnableDelayedExpansion
 
 echo.
-echo ╔════════════════════════════════════════════════════════════╗
-echo ║       MonitorApp - Windows Deployment Script               ║
-echo ║       Version 1.0.0                                        ║
-echo ╚════════════════════════════════════════════════════════════╝
+echo โ•”โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•—
+echo โ•‘       MonitorApp - Windows Deployment Script               โ•‘
+echo โ•‘       Version 1.0.0                                        โ•‘
+echo โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•
 echo.
 
 REM Check if running as administrator
@@ -115,7 +115,7 @@ REM ============================================================
 :build_backend_exe
 echo.
 echo [Step 1] Installing Python dependencies...
-cd backend
+cd client-app\backend
 if not exist "venv" (
     echo Creating virtual environment...
     python -m venv venv
@@ -185,7 +185,7 @@ if not exist "frontend\package.json" (
     goto :eof
 )
 
-cd frontend
+cd client-app
 echo Installing npm dependencies...
 call npm install --silent 2>nul
 
@@ -309,12 +309,12 @@ goto :eof
 
 :create_quick_start_guide
 (
-echo ╔════════════════════════════════════════════════════════════╗
-echo ║              MonitorApp - Quick Start Guide                ║
-echo ╚════════════════════════════════════════════════════════════╝
+echo โ•”โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•—
+echo โ•‘              MonitorApp - Quick Start Guide                โ•‘
+echo โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•
 echo.
 echo INSTALLATION:
-echo ─────────────
+echo โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€
 echo 1. Extract this folder to desired location ^(e.g., C:\MonitorApp^)
 echo 2. Copy config\.env.example to config\.env
 echo 3. Edit config\.env with your settings:
@@ -322,35 +322,35 @@ echo    - SUPABASE_URL=your_supabase_url
 echo    - SUPABASE_KEY=your_supabase_key
 echo.
 echo STARTING THE SERVER:
-echo ────────────────────
+echo โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€
 echo 1. Double-click START-SERVER.bat
 echo 2. Wait for "Server Started" message
 echo 3. Open browser: http://localhost:3001
 echo.
 echo STOPPING THE SERVER:
-echo ────────────────────
+echo โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€
 echo 1. Press any key in the server window, OR
 echo 2. Double-click STOP-SERVER.bat
 echo.
 echo FOLDER STRUCTURE:
-echo ─────────────────
+echo โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€
 echo MonitorApp/
-echo ├── backend/              - Server executable
-echo ├── frontend/             - Web interface files
-echo ├── config/               - Configuration files
-echo ├── logs/                 - Log files
-echo ├── docs/                 - Documentation
-echo ├── START-SERVER.bat      - Start the server
-echo └── STOP-SERVER.bat       - Stop the server
+echo โ”โ”€โ”€ backend/              - Server executable
+echo โ”โ”€โ”€ frontend/             - Web interface files
+echo โ”โ”€โ”€ config/               - Configuration files
+echo โ”โ”€โ”€ logs/                 - Log files
+echo โ”โ”€โ”€ docs/                 - Documentation
+echo โ”โ”€โ”€ START-SERVER.bat      - Start the server
+echo โ””โ”€โ”€ STOP-SERVER.bat       - Stop the server
 echo.
 echo SYSTEM REQUIREMENTS:
-echo ────────────────────
+echo โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€
 echo - Windows 10/11 ^(64-bit^)
 echo - 4GB RAM minimum
 echo - Network access for Supabase ^(if using cloud database^)
 echo.
 echo SUPPORT:
-echo ────────
+echo โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€
 echo For issues and documentation, see the docs/ folder.
 echo.
 ) > "%OUTPUT_DIR%\README.txt"
@@ -448,9 +448,9 @@ echo REM MonitorApp Service Manager
 echo.
 echo set SERVICE_NAME=MonitorAppService
 echo.
-echo echo ╔════════════════════════════════════════╗
-echo echo ║   MonitorApp Service Manager           ║
-echo echo ╚════════════════════════════════════════╝
+echo echo โ•”โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•—
+echo echo โ•‘   MonitorApp Service Manager           โ•‘
+echo echo โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•
 echo echo.
 echo echo   1. Start Service
 echo echo   2. Stop Service
@@ -478,9 +478,9 @@ goto :eof
 
 :success
 echo.
-echo ╔════════════════════════════════════════════════════════════╗
-echo ║              DEPLOYMENT COMPLETED SUCCESSFULLY!            ║
-echo ╚════════════════════════════════════════════════════════════╝
+echo โ•”โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•—
+echo โ•‘              DEPLOYMENT COMPLETED SUCCESSFULLY!            โ•‘
+echo โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•โ•
 echo.
 echo Output files:
 if exist "dist\MonitorApp-Backend.exe" echo   - Backend EXE: dist\MonitorApp-Backend.exe

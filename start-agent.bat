@@ -1,10 +1,10 @@
-@echo off
+﻿@echo off
 echo ========================================
 echo MonitorApp Remote Agent
 echo ========================================
 echo.
 
-cd backend
+cd client-app\backend
 
 REM Check if virtual environment exists
 if not exist "venv\" (

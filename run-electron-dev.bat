@@ -1,11 +1,11 @@
-@echo off
+﻿@echo off
 title MonitorApp - Electron Dev Mode
 echo ========================================
 echo   MonitorApp Electron Development
 echo ========================================
 echo.
 
-cd /d "%~dp0frontend"
+cd /d "%~dp0client-app"
 
 echo Checking dependencies...
 if not exist node_modules (

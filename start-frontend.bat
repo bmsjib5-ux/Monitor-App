@@ -1,11 +1,11 @@
-@echo off
+﻿@echo off
 chcp 65001 >nul
 echo ========================================
 echo   MonitorApp - Frontend Server
 echo ========================================
 echo.
 
-cd /d "%~dp0frontend"
+cd /d "%~dp0client-app"
 
 REM Check if Node.js is installed
 node --version >nul 2>&1

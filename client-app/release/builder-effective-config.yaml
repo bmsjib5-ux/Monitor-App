@@ -1,0 +1,39 @@
+directories:
+  output: release
+  buildResources: build
+appId: com.monitorapp.desktop
+productName: MonitorApp
+files:
+  - filter:
+      - dist/**/*
+      - electron/**/*
+      - '!node_modules/**/*'
+extraResources:
+  - from: ../backend
+    to: backend
+    filter:
+      - '**/*.py'
+      - requirements.txt
+      - config.yaml
+      - '!__pycache__/**'
+      - '!*.pyc'
+      - '!venv/**'
+      - '!.venv/**'
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+    - target: portable
+      arch:
+        - x64
+  icon: public/icon.ico
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  installerIcon: public/icon.ico
+  uninstallerIcon: public/icon.ico
+  installerHeaderIcon: public/icon.ico
+portable:
+  artifactName: MonitorApp-Portable-${version}.exe
+electronVersion: 28.3.3

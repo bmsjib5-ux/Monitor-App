@@ -1,4 +1,4 @@
-@echo off
+﻿@echo off
 chcp 65001 >nul
 title MonitorApp Client
 
@@ -7,7 +7,7 @@ echo   MonitorApp Client - Starting...
 echo ========================================
 echo.
 
-cd /d "%~dp0backend"
+cd /d "%~dp0client-app\backend"
 
 :: Check if port 3001 is in use
 netstat -ano | findstr ":3001" >nul 2>&1

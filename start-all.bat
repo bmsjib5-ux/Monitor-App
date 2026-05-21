@@ -1,4 +1,4 @@
-@echo off
+﻿@echo off
 chcp 65001 >nul
 REM ======================================
 REM MonitorApp - Start All Services
@@ -39,7 +39,7 @@ REM ======================================
 echo [1/2] Starting Backend API on port 3001...
 
 REM Start backend in new window
-start "MonitorApp-Backend" cmd /k "cd /d "%ROOT_DIR%backend" && call venv\Scripts\activate.bat && python main.py"
+start "MonitorApp-Backend" cmd /k "cd /d "%ROOT_DIR%client-app\backend" && call venv\Scripts\activate.bat && python main.py"
 
 echo      Waiting for backend to start...
 timeout /t 5 /nobreak >nul

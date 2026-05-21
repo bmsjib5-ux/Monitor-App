@@ -1,4 +1,4 @@
-@echo off
+﻿@echo off
 chcp 65001 >nul
 title MonitorApp Client Installation
 
@@ -26,7 +26,7 @@ if not exist "backend\data" mkdir "backend\data"
 :: Install Python dependencies
 echo.
 echo Installing Python dependencies...
-cd backend
+cd client-app\backend
 pip install -r requirements.txt
 if errorlevel 1 (
     echo [ERROR] Failed to install dependencies

@@ -1,4 +1,4 @@
-@echo off
+﻿@echo off
 REM ======================================
 REM MonitorApp - Backend Setup
 REM ======================================
@@ -23,7 +23,7 @@ python --version
 echo.
 
 REM Navigate to backend directory
-cd backend
+cd client-app\backend
 
 REM Create virtual environment (optional but recommended)
 echo [1] Creating virtual environment...

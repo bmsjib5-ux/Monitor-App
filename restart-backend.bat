@@ -1,4 +1,4 @@
-@echo off
+﻿@echo off
 echo.
 echo ========================================
 echo Restarting Backend Server
@@ -14,7 +14,7 @@ timeout /t 2 /nobreak >nul
 REM Start backend
 echo.
 echo Starting backend with new code...
-cd backend
+cd client-app\backend
 start "Monitor API Server" cmd /k "python main.py"
 cd ..
 

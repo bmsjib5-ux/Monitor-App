@@ -1,81 +1,79 @@
 # 🖥️ Windows Application Monitor
 
-**Real-time Process Monitoring System with Web Interface**
+**Real-time Process Monitoring System — Client/Master Split Architecture**
+
+---
+
+## 🏗️ Architecture
+
+โปรเจกต์แยกเป็น 2 แอปอิสระ
+
+| App | Type | Location | Purpose |
+|---|---|---|---|
+| **Client** | Electron desktop + Python backend | [client-app/](client-app/) | ติดตั้งที่เครื่อง user ปลายทาง — รัน FastAPI local + ส่งข้อมูลขึ้น Supabase |
+| **Master** | Web (GitHub Pages) | [master-app/](master-app/) | Dashboard กลางสำหรับ admin — อ่าน/เขียน Supabase โดยตรง ไม่ต้องมี backend |
+
+ทั้งสองแอปคุยกันผ่าน **Supabase** เป็นตัวกลาง (ไม่มี direct connection)
 
 ---
 
 ## ⚡ Quick Start
 
-```bash
-# ดับเบิ้ลคลิก
-start-all.bat
-```
-
-เปิด Browser ที่ **http://localhost:3001** อัตโนมัติ!
-
----
-
-## ✅ Status
-
-- ✅ Backend API: http://localhost:8000
-- ✅ Frontend: http://localhost:3001
-- ✅ Database: Supabase (Cloud PostgreSQL)
-- ✅ WebSocket: Real-time updates
-- ✅ Ready to use!
-
----
-
-## 📚 Documentation
-
-- **[START_HERE.md](START_HERE.md)** - 🎯 เริ่มใช้งานที่นี่ (แนะนำ)
-- **[QUICK_START.md](QUICK_START.md)** - Quick start guide
-- **[README_API.md](README_API.md)** - API documentation
-- **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)** - แก้ปัญหา
-- **[FRONTEND_CONNECTED.md](FRONTEND_CONNECTED.md)** - Frontend setup
-- **[SUPABASE_SETUP_SUCCESS.md](SUPABASE_SETUP_SUCCESS.md)** - Database setup
-- **[WEBSOCKET_FIX.md](WEBSOCKET_FIX.md)** - WebSocket guide
-- **[EDIT_SAVE_FEATURE.md](EDIT_SAVE_FEATURE.md)** - Edit/Save process metadata
-- **[DATABASE_MIGRATION.md](DATABASE_MIGRATION.md)** - Database migration guide
-- **[VIEWS_README.md](VIEWS_README.md)** - 📊 Supabase Views คู่มือย่อ ⭐ NEW!
-- **[SUPABASE_VIEWS_GUIDE.md](SUPABASE_VIEWS_GUIDE.md)** - คู่มือ Views แบบละเอียด
-- **[ALTER_TABLES_GUIDE.md](ALTER_TABLES_GUIDE.md)** - 🔧 อัปเดตโครงสร้างตาราง ⭐ NEW!
-
----
-
-## 🎯 Features
-
-✅ Real-time process monitoring
-✅ CPU, Memory, Disk I/O, Network metrics
-✅ Start/Stop/Restart processes
-✅ **Edit process metadata (Hospital name, Program path)** ⭐ NEW!
-✅ Customizable alerts
-✅ Export to CSV/Excel
-✅ WebSocket real-time updates
-✅ Cloud database (Supabase)
-
----
-
-## 🚀 How to Use
-
-### 1. Start Everything
+### Client (Desktop)
 ```bash
 start-all.bat
 ```
+เปิด Browser ที่ **http://localhost:3001** อัตโนมัติ
 
-### 2. Access Web Interface
+### Master (Web)
+- Production: https://bmsjib5-ux.github.io/MonitorApp/
+- Dev: `cd master-app && npm run dev` → http://localhost:5174
+
+---
+
+## 📁 Structure
+
 ```
-http://localhost:3001
+MonitorApp/
+├── client-app/                  💻 Desktop client (Electron + FastAPI)
+│   ├── backend/                 Python FastAPI (port 3001) + agent.py
+│   ├── electron/                Electron main process
+│   ├── src/                     React UI — ClientDashboard
+│   ├── package.json             monitor-app-client
+│   └── installer.iss (ที่ root) NSIS installer config
+│
+├── master-app/                  🖥️ Web master dashboard (GitHub Pages)
+│   ├── src/                     React UI — MasterDashboard + GitHubPagesDashboard
+│   ├── package.json             monitor-app-master (no Electron deps)
+│   └── vite.config.ts           base: /MonitorApp/ for GH Pages
+│
+├── .github/workflows/
+│   └── deploy-pwa.yml           Auto-deploy master-app on push to main
+│
+├── start-all.bat                Start client backend + open browser
+├── start-backend.bat            Start FastAPI only
+├── installer.iss                NSIS installer for client desktop app
+└── *.sql                        Supabase migration scripts
 ```
 
-### 3. Monitor Processes
-- Add processes to monitor
-- View real-time metrics
-- Get alerts
-- Export data
+---
 
-### 4. Stop Everything
+## 🚀 Deployment
+
+### Client (Desktop Installer)
 ```bash
-stop-all.bat
+cd client-app
+npm run electron:build:installer
+```
+Output: `client-app/release/MonitorApp-Client-Setup-x.x.x.exe`
+
+### Master (GitHub Pages)
+Push to `main` branch → GitHub Actions ([.github/workflows/deploy-pwa.yml](.github/workflows/deploy-pwa.yml)) deploys automatically.
+
+Manual build:
+```bash
+cd master-app
+npm run build
 ```
 
 ---
@@ -84,36 +82,19 @@ stop-all.bat
 
 - Python 3.8+
 - Node.js 16+
-- Supabase account (free)
-
----
-
-## 📁 Batch Files
-
-| File | Description |
-|------|-------------|
-| `start-all.bat` | ⭐ Start everything |
-| `stop-all.bat` | Stop everything |
-| `setup-backend.bat` | Setup (first time) |
-| `start-api.bat` | Start backend only |
-| `start-frontend.bat` | Start frontend only |
-| `test-api.bat` | Test API connection |
+- Supabase account (free) — โครงสร้าง DB ใน `*.sql` ไฟล์
 
 ---
 
 ## 💡 Tech Stack
 
-**Backend:** FastAPI + Python + Supabase
-**Frontend:** React + TypeScript + Vite
-**Database:** Supabase (PostgreSQL)
-**Real-time:** WebSocket
+**Client backend:** FastAPI + Python + psutil + LINE OA + Supabase
+**Frontend (both):** React 18 + TypeScript + Vite + Tailwind + shadcn/ui
+**Database:** Supabase (PostgreSQL) — shared between client and master
+**Real-time:** Supabase Realtime (master) + WebSocket (client local)
 
 ---
 
 ## 📞 Need Help?
 
-See [TROUBLESHOOTING.md](TROUBLESHOOTING.md)
-
----
-
-**Happy Monitoring! 🎉**
+ดู [TROUBLESHOOTING.md](TROUBLESHOOTING.md) หรือ [FEATURES.md](FEATURES.md)

@@ -1,4 +1,4 @@
-@echo off
+﻿@echo off
 chcp 65001 >nul
 title Build MonitorApp Installer
 
@@ -35,7 +35,7 @@ echo.
 :: Check if frontend is built
 if not exist "frontend\dist\index.html" (
     echo [WARNING] Frontend not built. Building now...
-    cd frontend
+    cd client-app
     call npm run build
     cd ..
     if not exist "frontend\dist\index.html" (

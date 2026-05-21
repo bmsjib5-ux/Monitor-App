@@ -1,11 +1,11 @@
-@echo off
+﻿@echo off
 chcp 65001 >nul
 echo ========================================
 echo   MonitorApp - Backend Server
 echo ========================================
 echo.
 
-cd /d "%~dp0backend"
+cd /d "%~dp0client-app\backend"
 
 if not exist "venv\" (
     echo Creating virtual environment...

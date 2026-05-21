@@ -1,4 +1,4 @@
-@echo off
+﻿@echo off
 echo ============================================================
 echo MonitorApp - Complete Build Script
 echo ============================================================
@@ -36,7 +36,7 @@ echo.
 REM Step 3: Build Frontend (optional)
 echo [Step 3/5] Building Frontend...
 if exist "frontend\package.json" (
-    cd frontend
+    cd client-app
     echo Installing frontend dependencies...
     call npm install --silent
     echo Building frontend...
